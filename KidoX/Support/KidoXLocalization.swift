@@ -8,6 +8,11 @@ enum KidoXLanguage: String, CaseIterable, Identifiable {
     case simplifiedChinese
     case japanese
 
+    static var searchLocaleIdentifier: String {
+        let language = selected(from: UserDefaults.standard.string(forKey: storageKey) ?? Self.system.rawValue)
+        return language.lprojIdentifier ?? Locale.preferredLanguages.first ?? "en"
+    }
+
     var id: String { rawValue }
 
     var lprojIdentifier: String? {

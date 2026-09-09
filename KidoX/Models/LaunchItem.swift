@@ -1,6 +1,6 @@
 import Foundation
 
-enum LaunchItemKind: String, Codable, CaseIterable, Identifiable {
+enum LaunchItemKind: String, Codable, CaseIterable, Identifiable, Sendable {
     case application
     case folder
     case file
@@ -9,7 +9,12 @@ enum LaunchItemKind: String, Codable, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
-struct LaunchItem: Identifiable, Hashable, Codable {
+struct LocalizedApplicationName: Hashable, Codable, Sendable {
+    let localeIdentifier: String
+    let name: String
+}
+
+struct LaunchItem: Identifiable, Hashable, Codable, Sendable {
     let id: UUID
     var kind: LaunchItemKind
     var displayName: String
@@ -18,6 +23,7 @@ struct LaunchItem: Identifiable, Hashable, Codable {
     var bundleIdentifier: String?
     var bundleName: String?
     var localizedDisplayNames: [String]?
+    var localizedSearchNames: [LocalizedApplicationName]?
     var applicationCategory: String?
     var version: String?
     var customDisplayName: String?
@@ -38,6 +44,7 @@ struct LaunchItem: Identifiable, Hashable, Codable {
         bundleIdentifier: String? = nil,
         bundleName: String? = nil,
         localizedDisplayNames: [String]? = nil,
+        localizedSearchNames: [LocalizedApplicationName]? = nil,
         applicationCategory: String? = nil,
         version: String? = nil,
         customDisplayName: String? = nil,
@@ -57,6 +64,7 @@ struct LaunchItem: Identifiable, Hashable, Codable {
         self.bundleIdentifier = bundleIdentifier
         self.bundleName = bundleName
         self.localizedDisplayNames = localizedDisplayNames
+        self.localizedSearchNames = localizedSearchNames
         self.applicationCategory = applicationCategory
         self.version = version
         self.customDisplayName = customDisplayName
@@ -98,98 +106,13 @@ struct LaunchItemSearchQuery: Hashable {
 }
 
 extension LaunchItem {
+    // Convenience for isolated callers. The live search path uses the store's cached entries.
     func searchMatch(for query: LaunchItemSearchQuery) -> LaunchItemSearchMatch? {
-        if let nameMatch = match(
-            query: query,
-            in: primaryNameSearchTerms,
-            scoreOffset: 0,
-            allowsFuzzy: true,
-            allowsSubstring: true
-        ) {
-            return nameMatch
-        }
-
-        if let localizedNameMatch = match(
-            query: query,
-            in: localizedNameSearchTerms,
-            scoreOffset: 32,
-            allowsFuzzy: false,
-            allowsSubstring: false
-        ) {
-            return localizedNameMatch
-        }
-
-        guard query.normalized.count >= 3 else { return nil }
-        return match(
-            query: query,
-            in: metadataSearchTerms,
-            scoreOffset: 120,
-            allowsFuzzy: false,
-            allowsSubstring: false
-        )
-    }
-
-    private func match(
-        query: LaunchItemSearchQuery,
-        in rawTerms: [String],
-        scoreOffset: Int,
-        allowsFuzzy: Bool,
-        allowsSubstring: Bool
-    ) -> LaunchItemSearchMatch? {
-        let terms = rawTerms
-            .map(\.kidoXSearchNormalized)
-            .filter { !$0.isEmpty }
-            .uniquedPreservingOrder()
-        guard !terms.isEmpty else { return nil }
-
-        var totalScore = 0
-        for token in query.tokens {
-            guard let bestTokenScore = terms.compactMap({
-                $0.kidoXSearchScore(
-                    for: token,
-                    allowsFuzzy: allowsFuzzy,
-                    allowsSubstring: allowsSubstring
-                )
-            }).min() else {
-                return nil
-            }
-            totalScore += bestTokenScore
-        }
-
-        return LaunchItemSearchMatch(score: scoreOffset + totalScore)
-    }
-
-    private var primaryNameSearchTerms: [String] {
-        [
-            customDisplayName,
-            displayName,
-            bundleName
-        ]
-        .compactMap { $0 }
-        .flatMap { term -> [String] in
-            [term] + term.kidoXSearchTokens
-        }
-    }
-
-    private var localizedNameSearchTerms: [String] {
-        (localizedDisplayNames ?? [])
-        .flatMap { term -> [String] in
-            [term] + term.kidoXSearchTokens
-        }
-    }
-
-    private var metadataSearchTerms: [String] {
-        [
-            bundleIdentifier
-        ]
-        .compactMap { $0 }
-        .flatMap { term -> [String] in
-            [term] + term.kidoXSearchTokens
-        }
+        ApplicationSearchIndex.Entry(.init(self, language: Locale.preferredLanguages.first ?? "en")).match(query)
     }
 }
 
-private extension String {
+extension String {
     var kidoXSearchNormalized: String {
         folding(options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive], locale: .current)
             .localizedLowercase
@@ -202,45 +125,6 @@ private extension String {
         }
         .map(String.init)
         .filter { !$0.isEmpty }
-    }
-
-    func kidoXSearchScore(for query: String, allowsFuzzy: Bool, allowsSubstring: Bool) -> Int? {
-        guard !query.isEmpty else { return 0 }
-
-        if self == query {
-            return 0
-        }
-        if hasPrefix(query) {
-            return 4 + min(count - query.count, 12)
-        }
-
-        let initials = kidoXSearchInitials
-        if !initials.isEmpty, initials.hasPrefix(query) {
-            let exactInitialsBonus = initials == query ? 0 : 4
-            return 10 + exactInitialsBonus + min(initials.count - query.count, 8)
-        }
-
-        if allowsFuzzy {
-            if query.count >= 2,
-               first == query.first,
-               let subsequenceScore = kidoXSubsequenceScore(for: query) {
-                return 28 + subsequenceScore
-            }
-        }
-
-        if allowsSubstring, let range = range(of: query) {
-            let leadingDistance = distance(from: startIndex, to: range.lowerBound)
-            return 56 + min(leadingDistance, 16) + min(count - query.count, 12)
-        }
-
-        if allowsFuzzy, query.count >= 3, count <= 40 {
-            let distanceLimit = query.count >= 6 ? 2 : 1
-            if let distance = kidoXEditDistance(to: query, limit: distanceLimit) {
-                return 72 + distance * 8 + abs(count - query.count)
-            }
-        }
-
-        return nil
     }
 
     var kidoXSearchInitials: String {
@@ -298,12 +182,5 @@ private extension String {
 
         let distance = previous[target.count]
         return distance <= limit ? distance : nil
-    }
-}
-
-private extension Array where Element: Hashable {
-    func uniquedPreservingOrder() -> [Element] {
-        var seen = Set<Element>()
-        return filter { seen.insert($0).inserted }
     }
 }

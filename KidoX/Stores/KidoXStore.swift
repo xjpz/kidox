@@ -35,6 +35,7 @@ enum KidoXLaunchSort: String, CaseIterable, Identifiable {
 private struct VisibleItemsCacheKey: Hashable {
     let sort: KidoXLaunchSort
     let query: String
+    let indexRevision: Int
 }
 
 private struct InitialLayoutGroup {
@@ -206,8 +207,13 @@ final class KidoXStore {
     var pages: [LaunchPage] = [] {
         didSet {
             visibleItemsCache.removeAll()
+            refreshSearchIndex()
         }
     }
+    private var searchIndex = ApplicationSearchIndex()
+    @ObservationIgnored nonisolated(unsafe) private var searchIndexTask: Task<Void, Never>?
+    private(set) var searchIndexRevision = 0
+    @ObservationIgnored nonisolated(unsafe) private var searchDefaultsObserver: NSObjectProtocol?
     var searchQuery = ""
     var searchFocusRequestID = 0
     var selectedItemID: LaunchItem.ID?
@@ -230,6 +236,11 @@ final class KidoXStore {
     @ObservationIgnored nonisolated(unsafe) private var externalPagesObserver: NSObjectProtocol?
 
     init() {
+        searchDefaultsObserver = NotificationCenter.default.addObserver(
+            forName: UserDefaults.didChangeNotification, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.refreshSearchIndex() }
+        }
         externalPagesObserver = NotificationCenter.default.addObserver(
             forName: .kidoXPagesDidChangeExternally,
             object: nil,
@@ -242,6 +253,8 @@ final class KidoXStore {
     }
 
     deinit {
+        if let searchDefaultsObserver { NotificationCenter.default.removeObserver(searchDefaultsObserver) }
+        searchIndexTask?.cancel()
         if let externalPagesObserver {
             NotificationCenter.default.removeObserver(externalPagesObserver)
         }
@@ -308,14 +321,34 @@ final class KidoXStore {
         return orderedPages.map(\.rootItems)
     }
 
+    private func refreshSearchIndex() {
+        guard let work = searchIndex.prepare(items: pages.flatMap(\.items), language: KidoXLanguage.searchLocaleIdentifier) else { return }
+        searchIndexTask?.cancel()
+        searchIndexRevision = searchIndex.revision
+        visibleItemsCache.removeAll()
+        searchIndexTask = Task { [weak self] in
+            let worker = Task.detached(priority: .userInitiated) { work.build() }
+            let built = await withTaskCancellationHandler {
+                await worker.value
+            } onCancel: {
+                worker.cancel()
+            }
+            guard !Task.isCancelled, let self,
+                  self.searchIndex.apply(built, generation: work.generation) else { return }
+            self.visibleItemsCache.removeAll()
+            self.searchIndexRevision = self.searchIndex.revision
+        }
+    }
+
     private func cachedSortedVisibleItems(sort: KidoXLaunchSort, query: String) -> [LaunchItem] {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
-        let key = VisibleItemsCacheKey(sort: sort, query: normalizedQuery)
+        let key = VisibleItemsCacheKey(sort: sort, query: normalizedQuery, indexRevision: searchIndexRevision)
         if let cached = visibleItemsCache[key] {
             return cached
         }
 
         let items = sortedVisibleItems(sort: sort, query: normalizedQuery)
+        if visibleItemsCache.count >= 64 { visibleItemsCache.removeAll(keepingCapacity: true) }
         visibleItemsCache[key] = items
         return items
     }
@@ -374,7 +407,7 @@ final class KidoXStore {
 
         return orderedPages.flatMap { page in
             page.items.compactMap { item in
-                guard !item.isHidden, item.kind != .folder, let match = item.searchMatch(for: parsedQuery) else {
+                guard !item.isHidden, item.kind != .folder, let match = searchIndex.match(item: item, query: parsedQuery) else {
                     return nil
                 }
                 return (item, match)
@@ -392,7 +425,8 @@ final class KidoXStore {
         if lhs.item.sortIndex != rhs.item.sortIndex {
             return lhs.item.sortIndex < rhs.item.sortIndex
         }
-        return localizedNameCompare(lhs.item, rhs.item) == .orderedAscending
+        let nameOrder = localizedNameCompare(lhs.item, rhs.item)
+        return nameOrder == .orderedSame ? lhs.item.id.uuidString < rhs.item.id.uuidString : nameOrder == .orderedAscending
     }
 
     func children(of folderID: UUID) -> [LaunchItem] {
@@ -1206,6 +1240,7 @@ final class KidoXStore {
                 merged[location.pageIndex].items[location.itemIndex].bundleIdentifier = scannedItem.bundleIdentifier
                 merged[location.pageIndex].items[location.itemIndex].bundleName = scannedItem.bundleName
                 merged[location.pageIndex].items[location.itemIndex].localizedDisplayNames = scannedItem.localizedDisplayNames
+                merged[location.pageIndex].items[location.itemIndex].localizedSearchNames = scannedItem.localizedSearchNames
                 merged[location.pageIndex].items[location.itemIndex].applicationCategory = scannedItem.applicationCategory
                 merged[location.pageIndex].items[location.itemIndex].version = scannedItem.version
                 merged[location.pageIndex].items[location.itemIndex].sourcePath = scannedItem.sourcePath

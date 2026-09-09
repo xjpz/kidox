@@ -25,7 +25,7 @@ KidoX is not a system hack or a patched copy of Launchpad. It is an independent 
 Core features:
 
 - Launchpad-style app grid with pages, folders, drag-and-drop arrangement, and keyboard navigation
-- Fast in-place search for installed apps
+- Fast in-place search with Chinese names, full pinyin, and pinyin initials
 - F4 / Launchpad key support, custom shortcuts, hot corners, menu-bar access, and Dock access
 - Optional global four-finger trackpad gesture: pinch to show KidoX, spread to hide it
 - Automatic scanning of standard Applications folders
@@ -80,6 +80,16 @@ xcodebuild -project KidoXApp.xcodeproj -scheme KidoX -configuration Debug build
 ```
 
 The project uses Swift Package Manager dependencies resolved by Xcode.
+
+Search supports Chinese text, English names, full pinyin, and pinyin initials: `x` or `xtsz` finds 系统设置, and `wx` or `weixin` finds 微信. With Default sorting, exact initials rank ahead of longer prefix matches. Language-tagged aliases keep unrelated foreign names out of single-letter searches. Search indexes are built in the background and updated when names change.
+
+Run the focused search and compatibility tests with:
+
+```sh
+xcodebuild -project KidoXApp.xcodeproj -scheme KidoXSearch -destination 'platform=macOS' test
+```
+
+This test scheme runs without launching KidoX or loading its user database. The tests are also registered in the main `KidoX` scheme.
 
 Local builds are intended for evaluation, review, and development. If you distribute modified builds, you are responsible for complying with AGPL-3.0 and for removing or replacing reserved KidoX brand assets where required.
 

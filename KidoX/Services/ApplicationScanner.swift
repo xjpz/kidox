@@ -102,6 +102,7 @@ struct ApplicationScanner: Sendable {
             bundleIdentifier: bundleIdentifier,
             bundleName: info?["CFBundleName"] as? String,
             localizedDisplayNames: localizedDisplayNames,
+            localizedSearchNames: localizedSearchNames(bundle: bundle),
             applicationCategory: applicationCategory,
             version: version,
             sourcePath: url.path,
@@ -135,6 +136,33 @@ struct ApplicationScanner: Sendable {
         }
 
         return nil
+    }
+
+    private static func localizedSearchNames(bundle: Bundle?) -> [LocalizedApplicationName] {
+        guard let bundle else { return [] }
+        let keys = ["CFBundleDisplayName", "CFBundleName"]
+        var result: [LocalizedApplicationName] = []
+        var seen = Set<LocalizedApplicationName>()
+        func append(_ strings: [String: String], locale: String) {
+            for key in keys {
+                guard let name = strings[key]?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else { continue }
+                let value = LocalizedApplicationName(localeIdentifier: locale, name: name)
+                if seen.insert(value).inserted { result.append(value) }
+            }
+        }
+        for locale in allBundleLocalizationIdentifiers(bundle: bundle) {
+            if let url = bundle.url(forResource: "InfoPlist", withExtension: "strings", subdirectory: nil, localization: locale),
+               let strings = NSDictionary(contentsOf: url) as? [String: String] {
+                append(strings, locale: locale)
+            }
+        }
+        if let url = bundle.url(forResource: "InfoPlist", withExtension: "loctable"),
+           let table = NSDictionary(contentsOf: url) as? [String: Any] {
+            for locale in table.keys.sorted() {
+                if let strings = table[locale] as? [String: String] { append(strings, locale: locale) }
+            }
+        }
+        return result
     }
 
     private static func localizedApplicationNames(

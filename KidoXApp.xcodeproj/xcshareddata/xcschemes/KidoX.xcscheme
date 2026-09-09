@@ -37,6 +37,9 @@
          </BuildableReference>
       </MacroExpansion>
       <Testables>
+         <TestableReference skipped="NO" parallelizable="NO">
+            <BuildableReference BuildableIdentifier="primary" BlueprintIdentifier="1F0F0573A61384E8B38AC250" BuildableName="KidoXTests.xctest" BlueprintName="KidoXTests" ReferencedContainer="container:KidoXApp.xcodeproj"/>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

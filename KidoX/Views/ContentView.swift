@@ -456,6 +456,7 @@ struct KidoXForegroundLayer: View {
     @State private var dragEdgeSide: Int = 0
     @State private var dragEdgeEnteredAt: Date?
     @State private var dragEdgeHasTurnedInCurrentRun = false
+    @State private var selectionIndexRevision = 0
     @State private var keyboardSelectionID: LaunchItem.ID?
     @State private var uninstallSession: UninstallPanelSession?
     @State private var uninstallCompletionAnimation: UninstallCompletionAnimation?
@@ -669,6 +670,9 @@ struct KidoXForegroundLayer: View {
             if isSearchingNow {
                 keyboardSelectionID = nil
             }
+            ensureKeyboardSelectionIsValid()
+        }
+        .onChange(of: store.searchIndexRevision) { _, _ in
             ensureKeyboardSelectionIsValid()
         }
         .onChange(of: visibleItemIDs) { _, _ in
@@ -2900,16 +2904,16 @@ struct KidoXForegroundLayer: View {
     }
 
     private func ensureKeyboardSelectionIsValid() {
-        let items = keyboardSelectionPages().flatMap { $0 }
-        guard !items.isEmpty else {
-            if keyboardSelectionID != nil { keyboardSelectionID = nil }
+        let indexChanged = selectionIndexRevision != store.searchIndexRevision
+        selectionIndexRevision = store.searchIndexRevision
+        let pages = keyboardSelectionPages()
+        let items = pages.indices.contains(currentPage) ? pages[currentPage] : []
+        if let id = keyboardSelectionID, items.contains(where: { $0.id == id }) { return }
+        if indexChanged, isSearching, let id = keyboardSelectionID,
+           let page = pages.firstIndex(where: { $0.contains(where: { $0.id == id }) }) {
+            currentPage = page
             return
         }
-
-        if let id = keyboardSelectionID, items.contains(where: { $0.id == id }) {
-            return
-        }
-
         keyboardSelectionID = isSearching ? items.first?.id : nil
     }
 
