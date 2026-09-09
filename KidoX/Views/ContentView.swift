@@ -205,11 +205,12 @@ enum KidoXSolidBackgroundPreset: String, CaseIterable, Identifiable, Hashable {
 
 private struct RootDragStartRequest: Equatable {
     let id: UUID
+    let presentationSessionID: UUID
     let itemID: LaunchItem.ID
     let startPoint: CGPoint
     let currentPoint: CGPoint
     let fingerOffset: CGSize
-    let targetPage: Int
+    let targetPage: LauncherPageID
 }
 
 private struct PageTurnAnimationRequest: Equatable {
@@ -418,9 +419,7 @@ struct KidoXForegroundLayer: View {
     @AppStorage("ClyAppLicense.entitlementType") private var licenseEntitlementType = ""
     @State private var searchFocused = false
     @State private var searchTextIsComposing = false
-    @State private var currentPage = 0
     @State private var pageTurnAnimationRequest: PageTurnAnimationRequest?
-    @State private var pageBeforeSearch: Int?
     @State private var dragOffset: CGFloat = 0
     @State private var currentSize: CGSize = .zero
     @State private var pressedItemID: LaunchItem.ID?
@@ -475,6 +474,24 @@ struct KidoXForegroundLayer: View {
     private let dragPageTurnCooldown: TimeInterval = 0.3
     private let dropTargetIconSize: CGFloat = 108
 
+    private var presentationProjection: LauncherPageProjection {
+        store.presentationPages(pageSize: LaunchPage.defaultCapacity, sort: launchSort)
+    }
+
+    private var currentPage: Int {
+        get { presentationProjection.restoredIndex(for: store.presentationPageID) }
+        nonmutating set { store.presentationPageID = presentationProjection.id(at: newValue) }
+    }
+
+    private var pageBeforeSearch: LauncherPageID? {
+        get { store.presentationPageBeforeSearch }
+        nonmutating set { store.presentationPageBeforeSearch = newValue }
+    }
+
+    private var isRecommendationPage: Bool {
+        presentationProjection.id(at: currentPage) == .recommendations
+    }
+
     private var isIconInteractionActive: Bool {
         pressedItemID != nil
             || draggingItemID != nil
@@ -511,7 +528,24 @@ struct KidoXForegroundLayer: View {
                     .zIndex(2)
 
                 Group {
-                    if store.isLoading && store.items.isEmpty {
+                    if launchSort == .default && !isSearching && store.recommendationPreferences.isEnabled {
+                        pagedGrid(size: proxy.size)
+                            .overlay {
+                                if isRecommendationPage && store.recommendationItems.isEmpty {
+                                    RecommendationsEmptyView(
+                                        isLoading: !store.recommendationsAreReady,
+                                        hasExclusions: !store.recommendationPreferences.exclusions.isEmpty,
+                                        onManage: {
+                                            store.recommendationPreferences.showsExclusions = true
+                                            store.recommendationPreferences.requestsManagement = true
+                                            onOpenSettings()
+                                        }
+                                    )
+                                } else if !isRecommendationPage && store.visibleItems.isEmpty {
+                                    if store.isLoading { loadingView } else { emptyView }
+                                }
+                            }
+                    } else if store.isLoading && store.items.isEmpty {
                         loadingView
                     } else if store.visibleItems.isEmpty {
                         emptyView
@@ -646,39 +680,52 @@ struct KidoXForegroundLayer: View {
         .onDisappear {
             onModalInteractionChanged(false)
         }
+        .onChange(of: store.presentationSessionID) { _, _ in
+            keyboardSelectionID = nil
+            pageTurnAnimationRequest = nil
+            rootDragStartRequest = nil
+            resetDragState()
+            resetFolderDragState()
+            resetPageDragOffset()
+        }
+        .onChange(of: store.recommendationPreferences.isEnabled) { _, enabled in
+            if !enabled && store.presentationPageID == .recommendations {
+                store.presentationPageID = nil
+            }
+            if !enabled && pageBeforeSearch == .recommendations { pageBeforeSearch = nil }
+            if enabled { store.renewRecommendationSnapshot() }
+            keyboardSelectionID = nil
+        }
+        .onChange(of: store.recommendationPreferences.layout) { _, _ in
+            keyboardSelectionID = nil
+        }
         .onChange(of: store.searchQuery) { oldValue, newValue in
             let wasSearching = !oldValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             let isSearchingNow = !newValue.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             closeFolderForSearchInputIfNeeded(isSearchingNow: isSearchingNow)
             if !wasSearching, isSearchingNow {
-                // 进入搜索：记住当前页
-                pageBeforeSearch = currentPage
-                SearchDragLog.write("enterSearch: pageBeforeSearch=\(currentPage), totalPages=\(visiblePages(pageSize: max(columnCount(for: currentSize) * rowCount(for: currentSize), 1)).count)")
+                let source = store.presentationPages(pageSize: LaunchPage.defaultCapacity, sort: launchSort, query: "")
+                pageBeforeSearch = store.presentationPageID ?? source.id(at: source.homeIndex)
                 currentPage = 0
             } else if wasSearching, !isSearchingNow {
-                // 退出搜索：回到搜索前的页面
-                if let prev = pageBeforeSearch {
-                    currentPage = prev
-                    pageBeforeSearch = nil
-                }
-                keyboardSelectionID = nil
+                // A new presentation may already have restored and consumed the search origin.
+                if let pageBeforeSearch { store.presentationPageID = pageBeforeSearch }
+                pageBeforeSearch = nil
             } else if isSearchingNow {
-                // 仍在搜索：keep page 0
                 currentPage = 0
             }
-            // 每次输入都重置到第一个结果
-            if isSearchingNow {
-                keyboardSelectionID = nil
-            }
+            keyboardSelectionID = nil
             ensureKeyboardSelectionIsValid()
         }
+
         .onChange(of: store.searchIndexRevision) { _, _ in
             ensureKeyboardSelectionIsValid()
         }
+
         .onChange(of: visibleItemIDs) { _, _ in
             ensureKeyboardSelectionIsValid()
         }
-        .onChange(of: launchSortRaw) { _, _ in
+        .onChange(of: launchSort) { _, _ in
             handleLaunchSortChange()
             ensureKeyboardSelectionIsValid()
         }
@@ -829,7 +876,7 @@ struct KidoXForegroundLayer: View {
     }
 
     private func visiblePages(pageSize: Int) -> [[LaunchItem]] {
-        store.visiblePages(pageSize: pageSize, sort: launchSort)
+        store.presentationPages(pageSize: pageSize, sort: launchSort).items
     }
 
     private var visibleItemIDs: [LaunchItem.ID] {
@@ -840,7 +887,8 @@ struct KidoXForegroundLayer: View {
     }
 
     private func handleLaunchSortChange() {
-        currentPage = 0
+        store.renewRecommendationSnapshot()
+        store.presentationPageID = nil
         pageBeforeSearch = nil
         keyboardSelectionID = nil
         store.openFolderID = nil
@@ -855,7 +903,8 @@ struct KidoXForegroundLayer: View {
         let columns = columnCount(for: size)
         let rows = rowCount(for: size)
         let pageSize = max(columns * rows, 1)
-        let pages = visiblePages(pageSize: pageSize)
+        let projection = store.presentationPages(pageSize: pageSize, sort: launchSort)
+        let pages = projection.items
         let pageWidth = size.width
         let pageHeight = contentHeight(for: size)
 
@@ -868,8 +917,11 @@ struct KidoXForegroundLayer: View {
 
         return AppKitPagedGridView(
             pages: pages,
+            pageIDs: projection.ids,
+            presentationSessionID: store.presentationSessionID,
+            recommendationLayout: store.recommendationPreferences.layout,
             childrenByFolderID: childrenByFolderID,
-            currentPage: $currentPage,
+            currentPage: Binding(get: { currentPage }, set: { currentPage = $0 }),
             columns: columns,
             rows: rows,
             pageWidth: pageWidth,
@@ -889,8 +941,10 @@ struct KidoXForegroundLayer: View {
             },
             onCreateBoundaryPage: { edgeSide in
                 guard launchSort.allowsReordering, store.searchQuery.isEmpty else { return nil }
-                let insertionPosition = edgeSide < 0 ? 0 : pages.count
-                return store.insertEmptyPage(atSortedPosition: insertionPosition)
+                let insertionPosition = edgeSide < 0 ? 0 : store.pages.count
+                let position = store.insertEmptyPage(atSortedPosition: insertionPosition)
+                let ordered = store.pages.sorted { $0.sortIndex < $1.sortIndex }
+                return ordered.indices.contains(position) ? .layout(ordered[position].id) : nil
             },
             onRootDragStarted: { requestID in
                 DispatchQueue.main.async {
@@ -934,8 +988,8 @@ struct KidoXForegroundLayer: View {
             onReorder: { itemID, slot in
                 applyPageMutationResult(store.reorder(itemID: itemID, toSlot: slot))
             },
-            onMoveRootItem: { itemID, page, slot in
-                applyPageMutationResult(store.moveRootItem(itemID: itemID, toPage: page, toSlot: slot))
+            onMoveRootItem: { itemID, pageID, slot in
+                applyPageMutationResult(store.moveRootItem(itemID: itemID, toLayoutPage: pageID, toSlot: slot))
             },
             onDropRootItem: { itemID, targetID in
                 applyPageMutationResult(store.dropRootItem(itemID: itemID, on: targetID))
@@ -943,23 +997,24 @@ struct KidoXForegroundLayer: View {
             onEmptyTap: {
                 onDismiss()
             },
+            onExcludeRecommendation: { item in
+                store.recommendationPreferences.exclude(item)
+                if keyboardSelectionID == item.id { keyboardSelectionID = nil }
+            },
             selectedItemID: keyboardSelectionID,
             isInSearchMode: isSearching,
             onBeginSearchDrag: { itemID, slot in
-                // 搜索态下用户开始拖拽：把 app 插到"进入搜索前的那一页"鼠标对应的 slot。
-                // 如果目标页满了，store 的 insertItemGroup 会把溢出的最后一个 root 推到下一页。
-                let targetPagePosition = pageBeforeSearch ?? currentPage
-                SearchDragLog.write("onBeginSearchDrag: itemID=\(itemID), slot=\(slot), pageBeforeSearch=\(pageBeforeSearch.map(String.init) ?? "nil"), currentPage=\(currentPage), targetPagePosition=\(targetPagePosition)")
-                applyPageMutationResult(
-                    store.moveItemToRootPage(
-                        itemID: itemID,
-                        toPage: targetPagePosition,
-                        toSlot: slot
-                    )
-                )
+                let layout = store.presentationPages(pageSize: pageSize, sort: .default, query: "")
+                guard let target = layout.searchDragDestination(from: pageBeforeSearch), target.layoutID != nil else { return nil }
+                applyPageMutationResult(store.moveItemToRootPage(itemID: itemID, toLayoutPage: target, toSlot: slot))
+                // A search drag resumes manual layout, including when search began in a sorted view.
+                if launchSort != .default { launchSortRaw = KidoXLaunchSort.default.rawValue }
+                pageBeforeSearch = target
                 clearSearch()
-                return targetPagePosition
+                return target
             }
+
+
         )
         .frame(width: pageWidth, height: pageHeight, alignment: .leading)
         .clipped()
@@ -1059,20 +1114,11 @@ struct KidoXForegroundLayer: View {
     }
 
     private func tileX(index: Int, columns: Int, size: CGSize) -> CGFloat {
-        let margin = horizontalPageMargin(for: size)
-        let slotWidth = contentWidth(for: size) / CGFloat(columns)
-        return margin + slotWidth * (CGFloat(index % columns) + 0.5)
+        LauncherGridLayout.x(index: index, columns: columns, width: size.width, margin: horizontalPageMargin(for: size))
     }
 
     private func tileY(index: Int, columns: Int, rows: Int, size: CGSize) -> CGFloat {
-        let row = CGFloat(index / columns)
-        let top = gridTopY(for: size)
-        let bottom = gridBottomY(for: size)
-        guard rows > 1 else {
-            return (top + bottom) / 2
-        }
-
-        return top + ((bottom - top) / CGFloat(rows - 1)) * row
+        LauncherGridLayout.y(index: index, columns: columns, rows: rows, top: gridTopY(for: size), bottom: gridBottomY(for: size))
     }
 
     private func displayOrder(for pageIndex: Int, items: [LaunchItem]) -> [LaunchItem] {
@@ -1611,7 +1657,7 @@ struct KidoXForegroundLayer: View {
     }
 
     private func beginTileDrag(item: LaunchItem, drag: DragGesture.Value, size: CGSize) {
-        guard store.searchQuery.isEmpty else { return }
+        guard store.searchQuery.isEmpty, !isRecommendationPage else { return }
         resetPageDragOffset()
 
         let columns = columnCount(for: size)
@@ -1805,14 +1851,15 @@ struct KidoXForegroundLayer: View {
 
         let proposedPage = currentPage + edgeSide
         let targetPage: Int
-        if proposedPage < 0 {
-            guard pages.first?.isEmpty == false else { return }
-            targetPage = store.insertEmptyPage(atSortedPosition: 0)
-            currentPage += 1
+        if proposedPage < presentationProjection.homeIndex {
+            guard pages[presentationProjection.homeIndex].isEmpty == false else { return }
+            _ = store.insertEmptyPage(atSortedPosition: 0)
+            targetPage = presentationProjection.homeIndex
             dragOriginPage = dragOriginPage.map { $0 + 1 }
         } else if proposedPage >= pageCount {
             guard pages.last?.isEmpty == false else { return }
-            targetPage = store.insertEmptyPage(atSortedPosition: pageCount)
+            _ = store.insertEmptyPage(atSortedPosition: store.pages.count)
+            targetPage = presentationProjection.pages.count - 1
         } else {
             targetPage = proposedPage
         }
@@ -1995,7 +2042,8 @@ struct KidoXForegroundLayer: View {
         guard let draggingID = draggingItemID,
               let order = pageOrderOverride,
               let slotInPage = order.firstIndex(of: draggingID),
-              let targetPage = dragTargetPage
+              let targetPage = dragTargetPage,
+              let targetPageID = presentationProjection.id(at: targetPage), targetPageID.layoutID != nil
         else { return }
 
         if let dragDropTargetID {
@@ -2003,7 +2051,7 @@ struct KidoXForegroundLayer: View {
         } else if targetPage == dragOriginPage {
             applyPageMutationResult(store.reorder(itemID: draggingID, toSlot: slotInPage))
         } else {
-            applyPageMutationResult(store.moveRootItem(itemID: draggingID, toPage: targetPage, toSlot: slotInPage))
+            applyPageMutationResult(store.moveRootItem(itemID: draggingID, toLayoutPage: targetPageID, toSlot: slotInPage))
         }
     }
 
@@ -2541,20 +2589,23 @@ struct KidoXForegroundLayer: View {
         )
         let targetPage = currentPage
         let targetSlot = rootSlotForGlobalPoint(globalPointerLocation, size: size)
-        applyPageMutationResult(store.moveItemToRootPage(itemID: item.id, toPage: targetPage, toSlot: targetSlot))
+        guard let targetPageID = presentationProjection.id(at: targetPage), targetPageID.layoutID != nil else { return }
+        applyPageMutationResult(store.moveItemToRootPage(itemID: item.id, toLayoutPage: targetPageID, toSlot: targetSlot))
 
         let columns = columnCount(for: size)
         let rows = rowCount(for: size)
         let pageSize = max(columns * rows, 1)
         let pages = visiblePages(pageSize: pageSize)
-        let resolvedPage = pages.firstIndex { page in
-            page.contains { $0.id == item.id }
+        let projection = presentationProjection
+        let resolvedPage = pages.indices.first { index in
+            projection.id(at: index)?.layoutID != nil && pages[index].contains { $0.id == item.id }
         } ?? min(targetPage, max(pages.count - 1, 0))
 
         currentPage = resolvedPage
         resetPageDragOffset()
         rootDragStartRequest = RootDragStartRequest(
             id: UUID(),
+            presentationSessionID: store.presentationSessionID,
             itemID: item.id,
             startPoint: globalPointerLocation,
             currentPoint: globalPointerLocation,
@@ -2562,7 +2613,7 @@ struct KidoXForegroundLayer: View {
                 width: globalPointerLocation.x - globalDragCenter.x,
                 height: globalPointerLocation.y - globalDragCenter.y
             ),
-            targetPage: resolvedPage
+            targetPage: presentationProjection.id(at: resolvedPage) ?? targetPageID
         )
 
         folderPressedItemID = nil
@@ -2582,6 +2633,7 @@ struct KidoXForegroundLayer: View {
         let panelOrigin = folderDragExitPanelOrigin ?? folderPanelOrigin(size: size)
         rootDragStartRequest = RootDragStartRequest(
             id: request.id,
+            presentationSessionID: request.presentationSessionID,
             itemID: request.itemID,
             startPoint: request.startPoint,
             currentPoint: CGPoint(
@@ -2596,7 +2648,8 @@ struct KidoXForegroundLayer: View {
     private func commitFolderDragExit(_ item: LaunchItem, at panelPoint: CGPoint, size: CGSize) {
         guard folderDraggingItemID == item.id else { return }
         let targetSlot = rootSlotForFolderExit(at: panelPoint, size: size)
-        applyPageMutationResult(store.moveItemToRootPage(itemID: item.id, toPage: currentPage, toSlot: targetSlot))
+        guard let target = presentationProjection.id(at: currentPage), target.layoutID != nil else { return }
+        applyPageMutationResult(store.moveItemToRootPage(itemID: item.id, toLayoutPage: target, toSlot: targetSlot))
         resetDragState()
         closeFolder()
     }
@@ -2754,28 +2807,31 @@ struct KidoXForegroundLayer: View {
     }
 
     private func pageFooter(size: CGSize) -> some View {
-        let pageSize = max(columnCount(for: size) * rowCount(for: size), 1)
-        let pageCount = max(visiblePages(pageSize: pageSize).count, 1)
-
-        return HStack {
-            Spacer()
-
-            HStack(spacing: 8) {
-                ForEach(0..<pageCount, id: \.self) { index in
-                    Circle()
-                        .fill(index == currentPage ? Color.white.opacity(0.78) : Color.white.opacity(0.30))
-                        .frame(width: 7, height: 7)
-                        .onTapGesture {
-                            guard index != currentPage else { return }
-                            moveToPage(index, animatedLikeScroll: true)
-                            moveKeyboardSelectionToFirstItem(on: index)
+        let projection = presentationProjection
+        return HStack(spacing: 0) {
+            ForEach(Array(projection.pages.enumerated()), id: \.element.id) { index, page in
+                Button {
+                    guard index != currentPage else { return }
+                    moveToPage(index, animatedLikeScroll: true)
+                    moveKeyboardSelectionToFirstItem(on: index)
+                } label: {
+                    Group {
+                        if page.id.isRecommendations {
+                            Image(systemName: "star.fill").font(.system(size: 12))
+                        } else {
+                            Circle().frame(width: 7, height: 7)
                         }
+                    }
+                    .foregroundStyle(Color.white.opacity(index == currentPage ? 0.85 : 0.30))
+                    .frame(width: 28, height: 28)
+                    .contentShape(Rectangle())
                 }
+                .buttonStyle(.plain)
+                .accessibilityLabel(page.id.isRecommendations
+                    ? KidoXL10n.ui("Frequent Apps")
+                    : String(format: KidoXL10n.ui("Page %d"), index - projection.homeIndex + 1))
+                .accessibilityAddTraits(index == currentPage ? .isSelected : [])
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            Spacer()
         }
     }
 
@@ -2795,20 +2851,17 @@ struct KidoXForegroundLayer: View {
 
     private func applyPageMutationResult(_ result: KidoXStore.PageMutationResult) {
         guard result.didRemovePages else { return }
-        let removedPositions = result.removedPagePositions
-
-        currentPage = adjustedPageIndex(currentPage, afterRemoving: removedPositions)
-            ?? min(currentPage, maxPageIndex(for: currentSize))
-        currentPage = max(0, min(currentPage, maxPageIndex(for: currentSize)))
-        pageBeforeSearch = pageBeforeSearch.flatMap {
-            adjustedPageIndex($0, afterRemoving: removedPositions)
+        let projection = presentationProjection
+        if projection.index(of: store.presentationPageID) == nil { store.presentationPageID = nil }
+        if let pageBeforeSearch, pageBeforeSearch.layoutID != nil,
+           !store.pages.contains(where: { $0.id == pageBeforeSearch.layoutID }) {
+            self.pageBeforeSearch = nil
         }
-        dragOriginPage = dragOriginPage.flatMap {
-            adjustedPageIndex($0, afterRemoving: removedPositions)
-        }
-        dragTargetPage = dragTargetPage.flatMap {
-            adjustedPageIndex($0, afterRemoving: removedPositions)
-        }
+        // Legacy folder drag state uses display coordinates; page identity owns the selected page.
+        let offset = projection.ids.first == .recommendations ? 1 : 0
+        let removedDisplayPositions = result.removedPagePositions.map { $0 + offset }
+        dragOriginPage = dragOriginPage.flatMap { adjustedPageIndex($0, afterRemoving: removedDisplayPositions) }
+        dragTargetPage = dragTargetPage.flatMap { adjustedPageIndex($0, afterRemoving: removedDisplayPositions) }
         ensureKeyboardSelectionIsValid()
     }
 
@@ -2920,58 +2973,14 @@ struct KidoXForegroundLayer: View {
     @discardableResult
     private func moveKeyboardSelection(_ direction: SearchSelectionMove) -> Bool {
         guard store.openFolderID == nil else { return false }
-        let pages = keyboardSelectionPages()
-        let items = pages.flatMap { $0 }
-        guard !items.isEmpty else { return false }
-
-        let columns = max(columnCount(for: currentSize), 1)
-        let rows = max(rowCount(for: currentSize), 1)
-        let pageSize = max(columns * rows, 1)
-
-        guard let currentIndex = {
-            if let id = keyboardSelectionID,
-               let idx = items.firstIndex(where: { $0.id == id }) {
-                return Optional(idx)
-            }
-            return nil
-        }() else {
-            if isSearching || direction == .right || direction == .down {
-                let firstIndexOnCurrentPage = flatStartIndex(for: currentPage, in: pages) ?? 0
-                let firstVisibleItem = firstIndexOnCurrentPage < items.count
-                    ? items[firstIndexOnCurrentPage]
-                    : items[0]
-                keyboardSelectionID = firstVisibleItem.id
-            }
-            return true
-        }
-
-        let nextIndex: Int
-        switch direction {
-        case .left:
-            nextIndex = max(0, currentIndex - 1)
-        case .right:
-            nextIndex = min(items.count - 1, currentIndex + 1)
-        case .up:
-            nextIndex = max(0, currentIndex - columns)
-        case .down:
-            // 不允许跨过末尾
-            let candidate = currentIndex + columns
-            if candidate < items.count {
-                nextIndex = candidate
-            } else {
-                // 同页最后一行末尾
-                nextIndex = items.count - 1
-            }
-        }
-
-        guard nextIndex != currentIndex else { return true }
-
-        let targetPage = pageIndex(containingFlatIndex: nextIndex, in: pages, fallbackPageSize: pageSize)
-        if targetPage != currentPage {
-            moveToPage(targetPage, animatedLikeScroll: true)
-            moveKeyboardSelectionToFirstItem(on: targetPage)
-        } else {
-            keyboardSelectionID = items[nextIndex].id
+        let projection = presentationProjection
+        guard let pageID = projection.id(at: currentPage), !projection.pages[currentPage].items.isEmpty else { return false }
+        if let selection = projection.movingSelection(
+            on: pageID, selectedItemID: keyboardSelectionID, direction: direction,
+            recommendationLayout: store.recommendationPreferences.layout
+        ), let targetPage = projection.index(of: selection.pageID) {
+            if targetPage != currentPage { moveToPage(targetPage, animatedLikeScroll: true) }
+            keyboardSelectionID = selection.itemID
         }
         return true
     }
@@ -3024,7 +3033,8 @@ struct KidoXForegroundLayer: View {
 
     @discardableResult
     private func commitKeyboardSelection() -> Bool {
-        let items = keyboardSelectionPages().flatMap { $0 }
+        let pages = keyboardSelectionPages()
+        let items = pages.indices.contains(currentPage) ? pages[currentPage] : []
         guard !items.isEmpty else { return false }
         let target: LaunchItem
         if let id = keyboardSelectionID,
@@ -3350,10 +3360,6 @@ struct KidoXForegroundLayer: View {
     private func gridBottomY(for size: CGSize) -> CGFloat {
         footerCenterY(for: size) - 98
     }
-}
-
-enum SearchSelectionMove {
-    case up, down, left, right
 }
 
 private struct SearchTextField: NSViewRepresentable {
@@ -5095,6 +5101,9 @@ extension Color {
 
 private struct AppKitPagedGridView: NSViewRepresentable {
     let pages: [[LaunchItem]]
+    let pageIDs: [LauncherPageID]
+    let presentationSessionID: UUID
+    let recommendationLayout: RecommendationLayout
     let childrenByFolderID: [LaunchItem.ID: [LaunchItem]]
     @Binding var currentPage: Int
     let columns: Int
@@ -5112,7 +5121,7 @@ private struct AppKitPagedGridView: NSViewRepresentable {
     let compactionAnimationRequest: GridCompactionAnimationRequest?
     let visuallyHiddenItemID: LaunchItem.ID?
     let onPageTurn: (Int) -> Void
-    let onCreateBoundaryPage: (Int) -> Int?
+    let onCreateBoundaryPage: (Int) -> LauncherPageID?
     let onRootDragStarted: (UUID) -> Void
     let onOpen: (LaunchItem) -> Void
     let onReveal: (LaunchItem) -> Void
@@ -5123,12 +5132,13 @@ private struct AppKitPagedGridView: NSViewRepresentable {
     let onUngroupFolder: (LaunchItem.ID) -> Void
     let onHide: (LaunchItem) -> Void
     let onReorder: (LaunchItem.ID, Int) -> Void
-    let onMoveRootItem: (LaunchItem.ID, Int, Int) -> Void
+    let onMoveRootItem: (LaunchItem.ID, LauncherPageID, Int) -> Void
     let onDropRootItem: (LaunchItem.ID, LaunchItem.ID) -> Void
     let onEmptyTap: () -> Void
+    let onExcludeRecommendation: (LaunchItem) -> Void
     let selectedItemID: LaunchItem.ID?
     let isInSearchMode: Bool
-    let onBeginSearchDrag: (LaunchItem.ID, Int) -> Int?
+    let onBeginSearchDrag: (LaunchItem.ID, Int) -> LauncherPageID?
 
     func makeNSView(context: Context) -> AppKitPagedGridNSView {
         context.coordinator.onPageTurn = onPageTurn
@@ -5152,6 +5162,7 @@ private struct AppKitPagedGridView: NSViewRepresentable {
         view.onMoveRootItem = onMoveRootItem
         view.onDropRootItem = onDropRootItem
         view.onEmptyTap = onEmptyTap
+        view.onExcludeRecommendation = onExcludeRecommendation
         view.onBeginSearchDrag = onBeginSearchDrag
         view.onRootDragStarted = onRootDragStarted
         view.onCreateBoundaryPage = onCreateBoundaryPage
@@ -5182,6 +5193,7 @@ private struct AppKitPagedGridView: NSViewRepresentable {
         nsView.onMoveRootItem = onMoveRootItem
         nsView.onDropRootItem = onDropRootItem
         nsView.onEmptyTap = onEmptyTap
+        nsView.onExcludeRecommendation = onExcludeRecommendation
         nsView.onBeginSearchDrag = onBeginSearchDrag
         nsView.onRootDragStarted = onRootDragStarted
         nsView.onCreateBoundaryPage = onCreateBoundaryPage
@@ -5192,6 +5204,9 @@ private struct AppKitPagedGridView: NSViewRepresentable {
         nsView.visuallyHiddenItemID = visuallyHiddenItemID
         nsView.configure(
             pages: pages,
+            pageIDs: pageIDs,
+            presentationSessionID: presentationSessionID,
+            recommendationLayout: recommendationLayout,
             childrenByFolderID: childrenByFolderID,
             currentPage: currentPage,
             columns: columns,
@@ -5229,12 +5244,13 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     var onUngroupFolder: ((LaunchItem.ID) -> Void)?
     var onHide: ((LaunchItem) -> Void)?
     var onReorder: ((LaunchItem.ID, Int) -> Void)?
-    var onMoveRootItem: ((LaunchItem.ID, Int, Int) -> Void)?
+    var onMoveRootItem: ((LaunchItem.ID, LauncherPageID, Int) -> Void)?
     var onDropRootItem: ((LaunchItem.ID, LaunchItem.ID) -> Void)?
     var onEmptyTap: (() -> Void)?
-    var onBeginSearchDrag: ((LaunchItem.ID, Int) -> Int?)?
+    var onExcludeRecommendation: ((LaunchItem) -> Void)?
+    var onBeginSearchDrag: ((LaunchItem.ID, Int) -> LauncherPageID?)?
     var onRootDragStarted: ((UUID) -> Void)?
-    var onCreateBoundaryPage: ((Int) -> Int?)?
+    var onCreateBoundaryPage: ((Int) -> LauncherPageID?)?
     var isInSearchMode: Bool = false
     var isRenameEnabled: Bool = true {
         didSet {
@@ -5255,9 +5271,26 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     private var pendingSearchDragItem: LaunchItem?
     private var pendingSearchDragMouseDownPoint: CGPoint?
     private var pendingSearchDragCurrentPoint: CGPoint?
-    private var pendingSearchDragTargetPage: Int?
+    private var pendingSearchDragTargetPage: LauncherPageID?
 
     private var pages: [[LaunchItem]] = []
+    private var pageIDs: [LauncherPageID] = []
+    private var presentationSessionID: UUID?
+    private var interactionMode = ""
+    private var recommendationScrollOffset: CGFloat = 0
+    private var recommendationLayout: RecommendationLayout = .sixByFour
+
+    private func isRecommendationPage(_ index: Int) -> Bool {
+        pageIDs.indices.contains(index) && pageIDs[index].isRecommendations
+    }
+
+    private var firstLayoutIndex: Int {
+        pageIDs.firstIndex { $0.layoutID != nil } ?? 0
+    }
+
+    private func layoutRecord(for id: LaunchItem.ID) -> TileRecord? {
+        tileRecords.first { $0.item.id == id && $0.pageID.layoutID != nil }
+    }
     private var childrenByFolderID: [LaunchItem.ID: [LaunchItem]] = [:]
     private var isReorderingEnabled = true
     private var currentPage = 0
@@ -5299,8 +5332,8 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     private var rootDragMonitor: Any?
     private var pendingDropDraggingID: LaunchItem.ID?
     private var pendingDropFinalFrame: CGRect?
-    private var pendingDropFinalPageIndex: Int?
-    private var pendingDropCompactionSourceFrames: [LaunchItem.ID: PendingDropCompactionSourceFrame] = [:]
+    private var pendingDropFinalPageID: LauncherPageID?
+    private var pendingDropCompactionSourceFrames: [PresentedItemID: PendingDropCompactionSourceFrame] = [:]
     private var dropTargetOverlayView: NSView?
     private var highlightedDropTargetID: LaunchItem.ID?
     private var nearbyPageRenderWorkItem: DispatchWorkItem?
@@ -5310,8 +5343,8 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     private var pageOrderOverride: [LaunchItem.ID]?
     private var selectedItemID: LaunchItem.ID?
     private var selectionHighlightView: NSView?
-    private var selectionHighlightItemID: LaunchItem.ID?
-    private var pressedVisualItemID: LaunchItem.ID?
+    private var selectionHighlightItemID: PresentedItemID?
+    private var pressedVisualItemID: PresentedItemID?
     private var dragDropTargetID: LaunchItem.ID?
     private var dragEnteredDropTargetID: LaunchItem.ID?
     private var dragEnteredDropTargetDirection: DropTargetEntryDirection?
@@ -5479,6 +5512,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         onMoveRootItem = nil
         onDropRootItem = nil
         onEmptyTap = nil
+        onExcludeRecommendation = nil
         onBeginSearchDrag = nil
         onRootDragStarted = nil
         onCreateBoundaryPage = nil
@@ -5577,6 +5611,9 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
 
     func configure(
         pages: [[LaunchItem]],
+        pageIDs: [LauncherPageID],
+        presentationSessionID: UUID,
+        recommendationLayout: RecommendationLayout,
         childrenByFolderID: [LaunchItem.ID: [LaunchItem]],
         currentPage: Int,
         columns: Int,
@@ -5590,12 +5627,33 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         pageTurnAnimationRequest: PageTurnAnimationRequest?,
         compactionAnimationRequest: GridCompactionAnimationRequest?
     ) {
+        let mode = pageIDs.compactMap { id -> String? in
+            if case .results(let context, _) = id { return context }
+            return nil
+        }.first ?? "layout"
+        if self.presentationSessionID != presentationSessionID || (interactionMode != mode && pendingSearchDragItem == nil) {
+            resetTileDragState()
+            pendingDropDraggingID = nil
+            pendingDropFinalFrame = nil
+            pendingDropFinalPageID = nil
+            pendingDropCompactionSourceFrames.removeAll()
+            handledPageTurnAnimationRequestID = pageTurnAnimationRequest?.id
+            cancelTrackpadPageGesture()
+            mouseDownItem = nil
+            mouseDownPoint = nil
+            isPageDragging = false
+            setPressedVisual(itemID: nil)
+            recommendationScrollOffset = 0
+        }
+        self.presentationSessionID = presentationSessionID
+        interactionMode = mode
         let previousTileMetrics = tileMetrics
-        let shouldRebuild = self.pages != pages
+        let shouldRebuild = self.pages != pages || self.pageIDs != pageIDs
             || self.childrenByFolderID != childrenByFolderID
             || self.isReorderingEnabled != isReorderingEnabled
 
-        let shouldRelayout = self.columns != columns
+        let recommendationLayoutChanged = self.recommendationLayout != recommendationLayout
+        let shouldRelayout = recommendationLayoutChanged || self.columns != columns
             || self.rows != rows
             || self.pageWidth != pageWidth
             || self.pageHeight != pageHeight
@@ -5628,7 +5686,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
                     .filter { $0.item.id != compactionAnimationRequest.removedItemID }
                     .map {
                         (
-                            $0.item.id,
+                            $0.presentationID,
                             PendingDropCompactionSourceFrame(
                                 globalFrame: globalFrame(for: $0)
                             )
@@ -5637,7 +5695,10 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
             )
         }
 
+        self.recommendationLayout = recommendationLayout
+        if recommendationLayoutChanged { recommendationScrollOffset = 0 }
         self.pages = pages
+        self.pageIDs = pageIDs
         self.childrenByFolderID = childrenByFolderID
         self.isReorderingEnabled = isReorderingEnabled
         self.currentPage = boundedCurrentPage
@@ -5648,6 +5709,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         self.horizontalMargin = horizontalMargin
         self.gridTopY = gridTopY
         self.gridBottomY = gridBottomY
+        recommendationScrollOffset = min(recommendationScrollOffset, recommendationMaximumScroll)
         let backingScaleChanged = renderedBackingScale.map { $0 != backingScale } ?? false
         let shouldRefreshRenderedContents = previousTileMetrics != tileMetrics
             || backingScaleChanged
@@ -5710,7 +5772,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
                 }
 
                 let recordMetrics = metrics ?? tileRecords[recordIndex].metrics
-                let frame = tileFrameForItem(index: slot, metrics: recordMetrics)
+                let frame = tileFrameForItem(index: slot, pageIndex: pageIndex, metrics: recordMetrics)
                 tileRecords[recordIndex].frame = frame
                 tileRecords[recordIndex].metrics = recordMetrics
 
@@ -5755,7 +5817,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         // 优先用上层指定的 targetPage（进入搜索前的页面），
         // 但 store 可能因为 item 已经在那或目标页不存在而没移动；
         // 兜底找 item 在 root 实际所在的 page。
-        let preferred = pendingSearchDragTargetPage
+        let preferred = pendingSearchDragTargetPage.flatMap { pageIDs.firstIndex(of: $0) }
         let preferredHit: Bool
         if let preferred,
            preferred >= 0,
@@ -5764,7 +5826,9 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         } else {
             preferredHit = false
         }
-        let foundPage = pages.firstIndex(where: { $0.contains(where: { $0.id == item.id }) })
+        let foundPage = pages.indices.first { index in
+            pageIDs[index].layoutID != nil && pages[index].contains(where: { $0.id == item.id })
+        }
 
         SearchDragLog.write("flush: itemID=\(item.id), pendingTarget=\(preferred.map(String.init) ?? "nil"), preferredHit=\(preferredHit), foundPage=\(foundPage.map(String.init) ?? "nil"), pages.count=\(pages.count), currentPage=\(currentPage)")
 
@@ -5809,16 +5873,17 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
               !isCompletingExternalDrop
         else { return }
 
-        guard request.targetPage >= 0,
-              request.targetPage < pages.count,
-              let item = pages[request.targetPage].first(where: { $0.id == request.itemID })
+        guard request.presentationSessionID == presentationSessionID,
+              request.targetPage.layoutID != nil,
+              let targetPage = pageIDs.firstIndex(of: request.targetPage),
+              let item = pages[targetPage].first(where: { $0.id == request.itemID })
         else { return }
 
         handledRootDragStartRequestID = request.id
         onRootDragStarted?(request.id)
-        if currentPage != request.targetPage {
-            currentPage = request.targetPage
-            onPageChanged?(request.targetPage)
+        if currentPage != targetPage {
+            currentPage = targetPage
+            onPageChanged?(targetPage)
             positionContainer(animated: false)
         }
 
@@ -5838,17 +5903,25 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     }
 
     func updateSelection(itemID: LaunchItem.ID?) {
-        guard selectedItemID != itemID else {
-            applySelectionHighlight()
-            return
-        }
+        let didMove = selectedItemID != itemID
         selectedItemID = itemID
+        if didMove, isRecommendationPage(currentPage), let itemID,
+           let record = tileRecords.first(where: { $0.pageIndex == currentPage && $0.item.id == itemID }) {
+            var offset = recommendationScrollOffset
+            if record.frame.minY < 0 { offset += record.frame.minY }
+            if record.frame.maxY > pageHeight { offset += record.frame.maxY - pageHeight }
+            offset = min(max(offset, 0), recommendationMaximumScroll)
+            if offset != recommendationScrollOffset {
+                recommendationScrollOffset = offset
+                relayoutLayersPreservingContents(refreshRenderedContents: false)
+            }
+        }
         applySelectionHighlight()
     }
 
     private func applySelectionHighlight() {
         guard let itemID = selectedItemID,
-              let record = tileRecords.first(where: { $0.item.id == itemID })
+              let record = tileRecords.first(where: { $0.pageIndex == currentPage && $0.item.id == itemID })
         else {
             removeSelectionHighlight()
             return
@@ -5857,7 +5930,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         let frame = record.frame.offsetBy(dx: CGFloat(record.pageIndex) * pageWidth, dy: 0)
 
         if let existing = selectionHighlightView,
-           selectionHighlightItemID == itemID {
+           selectionHighlightItemID == record.presentationID {
             // 同一项：直接平滑挪到新位置（page 切换 / 布局变化）
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.18
@@ -5878,7 +5951,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         hostingView.alphaValue = 0
         glassOverlayContainerView.addSubview(hostingView)
         selectionHighlightView = hostingView
-        selectionHighlightItemID = itemID
+        selectionHighlightItemID = record.presentationID
 
         NSAnimationContext.runAnimationGroup { context in
             context.duration = 0.16
@@ -5914,17 +5987,17 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         guard let draggingID = pendingDropDraggingID else { return }
         pendingDropDraggingID = nil
         let finalFrame = pendingDropFinalFrame
-        let finalPageIndex = pendingDropFinalPageIndex
+        let finalPageID = pendingDropFinalPageID
         pendingDropFinalFrame = nil
-        pendingDropFinalPageIndex = nil
+        pendingDropFinalPageID = nil
         pendingDropCompactionSourceFrames.removeAll()
         isFinishingTileDrag = false
         // 撤 overlay 之前，先把原 tile 摆到落点并 unhide。
         // configure → rebuildLayers 已经把 tile 放到新位置时是 no-op；
         // store 没触发重建时这一步保证撤掉 overlay 不会露出空位。
-        for record in tileRecords where record.item.id == draggingID {
-            if let finalFrame, let finalPageIndex {
-                setVisual(record.visual, frame: finalFrame, pageIndex: finalPageIndex)
+        for record in tileRecords where record.item.id == draggingID && !record.pageID.isRecommendations {
+            if let finalFrame, record.pageID == finalPageID {
+                setVisual(record.visual, frame: finalFrame, pageIndex: record.pageIndex)
             }
             setVisual(record.visual, hidden: false)
         }
@@ -5943,7 +6016,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         for record in tileRecords {
-            guard let source = sourceFrames[record.item.id],
+            guard let source = sourceFrames[record.presentationID],
                   source.globalFrame != globalFrame(for: record)
             else {
                 continue
@@ -6042,6 +6115,15 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
             revealItem.representedObject = item
             menu.addItem(revealItem)
 
+            if isRecommendationPage(currentPage) {
+                menu.addItem(.separator())
+                let exclude = NSMenuItem(title: KidoXL10n.ui("Do not recommend this app"), action: #selector(handleContextExcludeRecommendation(_:)), keyEquivalent: "")
+                exclude.target = self
+                exclude.representedObject = item
+                menu.addItem(exclude)
+                return menu
+            }
+
             let renameItem = NSMenuItem(title: KidoXL10n.string(.rename), action: #selector(handleContextRenameItem(_:)), keyEquivalent: "")
             renameItem.target = self
             renameItem.representedObject = item
@@ -6066,6 +6148,11 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         }
 
         return menu
+    }
+
+    @objc private func handleContextExcludeRecommendation(_ sender: NSMenuItem) {
+        guard let item = sender.representedObject as? LaunchItem else { return }
+        onExcludeRecommendation?(item)
     }
 
     @objc private func handleContextOpen(_ sender: NSMenuItem) {
@@ -6107,7 +6194,8 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
             onRenameUnavailable?()
             return
         }
-        guard let record = tileRecords.first(where: { $0.item.id == item.id }) else { return }
+        guard !isRecommendationPage(currentPage),
+              let record = tileRecords.first(where: { $0.pageIndex == currentPage && $0.item.id == item.id }) else { return }
 
         finishInlineRename()
         switch record.visual {
@@ -6193,7 +6281,13 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         }
 
         if !isPageDragging {
-            if let mouseDownItem, isReorderingEnabled {
+            // Recommendation apps stay clickable until a drag crosses the threshold.
+            if isRecommendationPage(currentPage) {
+                let distance = hypot(translation.width, translation.height)
+                guard distance >= dragActivationDistance else { return }
+            }
+
+            if let mouseDownItem, isReorderingEnabled, !isRecommendationPage(currentPage) {
                 setPressedVisual(itemID: nil)
                 beginTileDrag(
                     item: mouseDownItem,
@@ -6211,10 +6305,20 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
                 pendingSearchDragCurrentPoint = point
                 let slot = slotFromGridPoint(point)
                 pendingSearchDragTargetPage = onBeginSearchDrag?(mouseDownItem.id, slot)
-                SearchDragLog.write("mouseDragged: triggered search drag, itemID=\(mouseDownItem.id), slot=\(slot), returnedTargetPage=\(pendingSearchDragTargetPage.map(String.init) ?? "nil")")
+                if pendingSearchDragTargetPage == nil {
+                    pendingSearchDragItem = nil
+                    pendingSearchDragMouseDownPoint = nil
+                    pendingSearchDragCurrentPoint = nil
+                }
                 return
             }
 
+            if mouseDownItem != nil && isRecommendationPage(currentPage) {
+                setPressedVisual(itemID: nil)
+                self.mouseDownPoint = nil
+                self.mouseDownItem = nil
+                return
+            }
             guard mouseDownItem == nil else { return }
             let distance = hypot(translation.width, translation.height)
             guard distance >= dragActivationDistance else { return }
@@ -6314,6 +6418,13 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     }
 
     private func handleScrollWheel(_ event: NSEvent) -> Bool {
+        if isRecommendationPage(currentPage), recommendationMaximumScroll > 0,
+           abs(event.scrollingDeltaY) > abs(event.scrollingDeltaX) {
+            recommendationScrollOffset = min(max(recommendationScrollOffset - event.scrollingDeltaY, 0), recommendationMaximumScroll)
+            relayoutLayersPreservingContents(refreshRenderedContents: false)
+            applySelectionHighlight()
+            return true
+        }
         guard pages.count > 1, !isTileDragging, pendingSearchDragItem == nil else {
             cancelTrackpadPageGesture()
             return false
@@ -6441,7 +6552,8 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     ) {
         guard !isFinishingTileDrag else { return }
 
-        guard let record = tileRecords.first(where: { $0.pageIndex == currentPage && $0.item.id == item.id }),
+        guard !isRecommendationPage(currentPage),
+              let record = tileRecords.first(where: { $0.pageIndex == currentPage && $0.item.id == item.id }),
               currentPage < pages.count,
               let originSlot = pages[currentPage].firstIndex(where: { $0.id == item.id })
         else { return }
@@ -6494,7 +6606,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
               let item = tileDraggedItem,
               item.kind == .application,
               isPointInDockSystemDragZone(point),
-              let record = tileRecords.first(where: { $0.item.id == item.id })
+              let record = layoutRecord(for: item.id)
         else { return false }
 
         guard beginAppSystemDrag(
@@ -6661,37 +6773,40 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         let targetPage = tileDragTargetPage
         let originPage = tileDragOriginPage
         let order = pageOrderOverride
+        let targetPageID = targetPage.flatMap { pageIDs.indices.contains($0) ? pageIDs[$0] : nil }
+        let committingSession = presentationSessionID
+        let committingMode = interactionMode
 
         // 算出原 tile 最终落在哪个 page 的哪个 slot 的 tile frame
         var finalSlotFrame: CGRect?
-        var finalSlotPage: Int?
         if let targetPage, targetPage >= 0, targetPage < pages.count {
             let pageItems = pages[targetPage]
             let displayItems = displayOrder(for: targetPage, items: pageItems)
             if let dropTargetID,
                let idx = displayItems.firstIndex(where: { $0.id == dropTargetID }) {
                 finalSlotFrame = tileFrameForItem(index: idx)
-                finalSlotPage = targetPage
             } else if let order, let idx = order.firstIndex(of: draggingID) {
                 finalSlotFrame = tileFrameForItem(index: idx)
-                finalSlotPage = targetPage
             }
         }
 
         let commit: @MainActor () -> Void = { [weak self] in
-            guard let self else { return }
+            guard let self, self.presentationSessionID == committingSession,
+                  self.interactionMode == committingMode,
+                  let targetPageID, targetPageID.layoutID != nil,
+                  self.pageIDs.contains(targetPageID) else { return }
             // 在通知 store 之前清掉拖拽状态，但保留 overlay 和原 tile 的隐藏
             // 直到下一次 configure() 用新顺序 rebuild 完成
             self.pendingDropDraggingID = draggingID
             self.pendingDropFinalFrame = finalSlotFrame
-            self.pendingDropFinalPageIndex = finalSlotPage
+            self.pendingDropFinalPageID = targetPageID
             if dropTargetID != nil {
                 self.pendingDropCompactionSourceFrames = Dictionary(
                     uniqueKeysWithValues: self.tileRecords
                         .filter { $0.item.id != draggingID }
                         .map {
                             (
-                                $0.item.id,
+                                $0.presentationID,
                                 PendingDropCompactionSourceFrame(
                                     globalFrame: self.globalFrame(for: $0)
                                 )
@@ -6734,7 +6849,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
                 if targetPage == originPage {
                     self.onReorder?(draggingID, slot)
                 } else {
-                    self.onMoveRootItem?(draggingID, targetPage, slot)
+                    self.onMoveRootItem?(draggingID, targetPageID, slot)
                 }
                 didNotifyStore = true
             }
@@ -6935,7 +7050,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     private func createTileDragOverlayForSystemDragIfNeeded(at point: CGPoint) {
         guard tileDragOverlayView == nil,
               let item = tileDraggedItem,
-              let record = tileRecords.first(where: { $0.item.id == item.id })
+              let record = layoutRecord(for: item.id)
         else { return }
 
         let center = CGPoint(
@@ -7140,7 +7255,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         defer { CATransaction.commit() }
 
         for (itemIndex, item) in items.enumerated() {
-            let tileFrame = tileFrameForItem(index: itemIndex, metrics: metrics)
+            let tileFrame = tileFrameForItem(index: itemIndex, pageIndex: pageIndex, metrics: metrics)
             if item.kind == .folder {
                 let folderFrame = tileFrame.offsetBy(dx: CGFloat(pageIndex) * pageWidth, dy: 0)
                 let hostingView = AppTileHostingView(
@@ -7165,13 +7280,14 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
                 hostingView.frame = folderFrame
                 hostingView.wantsLayer = true
                 hostingView.layer?.backgroundColor = NSColor.clear.cgColor
-                hostingView.isHidden = isVisualHidden(item)
+                hostingView.isHidden = isVisualHidden(item, pageIndex: pageIndex)
                 containerView.addSubview(hostingView)
                 folderTileViews.append(hostingView)
                 tileRecords.append(
                     TileRecord(
                         item: item,
                         pageIndex: pageIndex,
+                        pageID: pageIDs[pageIndex],
                         frame: tileFrame,
                         metrics: metrics,
                         visual: .view(hostingView)
@@ -7190,12 +7306,13 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
                     metrics: metrics
                 )
                 tileLayer.actions = disabledActions
-                tileLayer.isHidden = isVisualHidden(item)
+                tileLayer.isHidden = isVisualHidden(item, pageIndex: pageIndex)
                 pageLayer.addSublayer(tileLayer)
                 tileRecords.append(
                     TileRecord(
                         item: item,
                         pageIndex: pageIndex,
+                        pageID: pageIDs[pageIndex],
                         frame: tileFrame,
                         metrics: metrics,
                         visual: .layer(tileLayer)
@@ -7363,7 +7480,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         let draggingID = tileDraggedItem?.id
 
         for record in tileRecords {
-            setVisual(record.visual, hidden: record.item.id == draggingID)
+            setVisual(record.visual, hidden: !record.pageID.isRecommendations && record.item.id == draggingID)
         }
 
         if animated {
@@ -7384,7 +7501,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
                         guard let record = tileRecords.first(where: { $0.pageIndex == pageIndex && $0.item.id == item.id }) else {
                             continue
                         }
-                        let frame = tileFrameForItem(index: slot)
+                        let frame = tileFrameForItem(index: slot, pageIndex: pageIndex)
                         setVisual(record.visual, frame: frame, pageIndex: pageIndex, animated: true)
                     }
                 }
@@ -7402,7 +7519,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
                 guard let record = tileRecords.first(where: { $0.pageIndex == pageIndex && $0.item.id == item.id }) else {
                     continue
                 }
-                let frame = tileFrameForItem(index: slot)
+                let frame = tileFrameForItem(index: slot, pageIndex: pageIndex)
                 setVisual(record.visual, frame: frame, pageIndex: pageIndex)
             }
         }
@@ -7411,12 +7528,12 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
 
     private func applyVisualHiddenState() {
         for record in tileRecords {
-            setVisual(record.visual, hidden: isVisualHidden(record.item))
+            setVisual(record.visual, hidden: isVisualHidden(record.item, pageIndex: record.pageIndex))
         }
     }
 
-    private func isVisualHidden(_ item: LaunchItem) -> Bool {
-        item.id == tileDraggedItem?.id || item.id == visuallyHiddenItemID
+    private func isVisualHidden(_ item: LaunchItem, pageIndex: Int) -> Bool {
+        !isRecommendationPage(pageIndex) && (item.id == tileDraggedItem?.id || item.id == visuallyHiddenItemID)
     }
 
     private func setVisual(_ visual: TileVisual, hidden: Bool) {
@@ -7474,21 +7591,18 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     }
 
     private func setPressedVisual(itemID: LaunchItem.ID?) {
-        guard pressedVisualItemID != itemID else { return }
-
-        if let pressedVisualItemID {
-            updatePressedVisual(itemID: pressedVisualItemID, isPressed: false)
+        let presentedID = itemID.flatMap { id in
+            pageIDs.indices.contains(currentPage) ? PresentedItemID(pageID: pageIDs[currentPage], itemID: id) : nil
         }
-
-        pressedVisualItemID = itemID
-
-        if let itemID {
-            updatePressedVisual(itemID: itemID, isPressed: true)
-        }
+        guard pressedVisualItemID != presentedID else { return }
+        if let previous = pressedVisualItemID { updatePressedVisual(itemID: previous, isPressed: false) }
+        pressedVisualItemID = presentedID
+        if let presentedID { updatePressedVisual(itemID: presentedID, isPressed: true) }
     }
 
-    private func updatePressedVisual(itemID: LaunchItem.ID, isPressed: Bool) {
-        guard let record = tileRecords.first(where: { $0.item.id == itemID }) else { return }
+    private func updatePressedVisual(itemID: PresentedItemID, isPressed: Bool) {
+        guard let record = tileRecords.first(where: { $0.presentationID == itemID }) else { return }
+
 
         switch record.visual {
         case .layer(let layer):
@@ -7510,6 +7624,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     }
 
     private func displayOrder(for pageIndex: Int, items: [LaunchItem]) -> [LaunchItem] {
+        guard !isRecommendationPage(pageIndex) else { return items }
         guard let draggedItem = tileDraggedItem else { return items }
         guard pageIndex == tileDragTargetPage,
               let pageOrderOverride
@@ -7872,7 +7987,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
 
         let proposedPage = currentPage + edgeSide
         let targetPage: Int
-        if proposedPage < 0 || proposedPage >= pages.count {
+        if proposedPage < firstLayoutIndex || proposedPage >= pages.count {
             guard let createdPage = createBoundaryDragPage(edgeSide: edgeSide) else { return }
             targetPage = createdPage
         } else {
@@ -7888,25 +8003,19 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     }
 
     private func createBoundaryDragPage(edgeSide: Int) -> Int? {
-        let insertionPosition = edgeSide < 0 ? 0 : pages.count
+        let insertionPosition = edgeSide < 0 ? firstLayoutIndex : pages.count
+        let boundary = edgeSide < 0 ? firstLayoutIndex : pages.count - 1
+        guard pages.indices.contains(boundary), !pages[boundary].isEmpty,
+              let createdID = onCreateBoundaryPage?(edgeSide), createdID.layoutID != nil else { return nil }
+        pages.insert([], at: insertionPosition)
+        pageIDs.insert(createdID, at: insertionPosition)
         if edgeSide < 0 {
-            guard pages.first?.isEmpty == false else { return nil }
-        } else {
-            guard pages.last?.isEmpty == false else { return nil }
-        }
-        guard let createdPage = onCreateBoundaryPage?(edgeSide) else { return nil }
-
-        if edgeSide < 0 {
-            pages.insert([], at: 0)
             tileDragOriginPage = tileDragOriginPage.map { $0 + 1 }
             currentPage += 1
-        } else {
-            pages.append([])
         }
-
         rebuildLayers()
         positionContainer(animated: false)
-        return createdPage == insertionPosition ? createdPage : insertionPosition
+        return insertionPosition
     }
 
     private func item(at point: CGPoint) -> LaunchItem? {
@@ -7948,18 +8057,36 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         return iconRect.contains(localPoint) || labelRect.contains(localPoint)
     }
 
-    private func tileFrameForItem(index: Int, metrics: AppTileMetrics? = nil) -> CGRect {
+    private var recommendationMaximumScroll: CGFloat {
+        guard let pageIndex = pageIDs.firstIndex(of: .recommendations),
+              let lastIndex = pages[pageIndex].indices.last else { return 0 }
+        return max(0, recommendationCenter(index: lastIndex).y + tileMetrics.tileHeight / 2 - pageHeight)
+    }
+
+    private func tileFrameForItem(index: Int, pageIndex: Int? = nil, metrics: AppTileMetrics? = nil) -> CGRect {
         let metrics = metrics ?? tileMetrics
         let tileSize = CGSize(width: metrics.tileWidth, height: metrics.tileHeight)
-        let center = CGPoint(
-            x: tileX(index: index),
-            y: tileY(index: index)
-        )
+        let pageIndex = pageIndex ?? currentPage
+        var center = isRecommendationPage(pageIndex)
+            ? recommendationCenter(index: index, metrics: metrics)
+            : CGPoint(x: tileX(index: index), y: tileY(index: index))
+        if isRecommendationPage(pageIndex) {
+            center.y -= recommendationScrollOffset
+        }
         return CGRect(
             x: center.x - tileSize.width / 2,
             y: center.y - tileSize.height / 2,
             width: tileSize.width,
             height: tileSize.height
+        )
+    }
+
+    private func recommendationCenter(index: Int, metrics: AppTileMetrics? = nil) -> CGPoint {
+        let metrics = metrics ?? tileMetrics
+        return RecommendationGridLayout.center(
+            index: index, width: pageWidth, margin: horizontalMargin,
+            top: gridTopY, tileWidth: metrics.tileWidth, tileHeight: metrics.tileHeight,
+            layout: recommendationLayout
         )
     }
 
@@ -8016,14 +8143,11 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     }
 
     private func tileX(index: Int) -> CGFloat {
-        let slotWidth = max(pageWidth - horizontalMargin * 2, 1) / CGFloat(max(columns, 1))
-        return horizontalMargin + slotWidth * (CGFloat(index % max(columns, 1)) + 0.5)
+        LauncherGridLayout.x(index: index, columns: columns, width: pageWidth, margin: horizontalMargin)
     }
 
     private func tileY(index: Int) -> CGFloat {
-        let row = CGFloat(index / max(columns, 1))
-        guard rows > 1 else { return (gridTopY + gridBottomY) / 2 }
-        return gridTopY + ((gridBottomY - gridTopY) / CGFloat(rows - 1)) * row
+        LauncherGridLayout.y(index: index, columns: columns, rows: rows, top: gridTopY, bottom: gridBottomY)
     }
 
     private func positionContainer(animated: Bool) {
@@ -8036,7 +8160,7 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         var targetFrame = containerView.frame
         targetFrame.origin.x = offsetX
 
-        if animated {
+        if animated && !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = 0.34
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
@@ -8065,6 +8189,8 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     private struct TileRecord {
         let item: LaunchItem
         let pageIndex: Int
+        let pageID: LauncherPageID
+        var presentationID: PresentedItemID { PresentedItemID(pageID: pageID, itemID: item.id) }
         var frame: CGRect
         var metrics: AppTileMetrics
         let visual: TileVisual

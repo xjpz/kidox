@@ -255,6 +255,8 @@ private struct GeneralPane: View {
 
     var body: some View {
         Form {
+            RecommendationSettingsSection()
+
             Section {
                 LabeledContent {
                     Picker("", selection: $appLanguageRaw) {
@@ -2323,6 +2325,7 @@ private struct KidoXBackupPreferences: Codable {
     var glassStrength: Double
     var solidPreset: String
     var solidCustomColor: String
+    var recommendations: RecommendationBackupPreferences
 
     private enum CodingKeys: String, CodingKey {
         case showMenuBarIcon
@@ -2360,7 +2363,8 @@ private struct KidoXBackupPreferences: Codable {
         imageDarken: Double,
         glassStrength: Double,
         solidPreset: String,
-        solidCustomColor: String
+        solidCustomColor: String,
+        recommendations: RecommendationBackupPreferences = RecommendationBackupPreferences()
     ) {
         self.showMenuBarIcon = showMenuBarIcon
         self.f4HotKeyEnabled = f4HotKeyEnabled
@@ -2378,9 +2382,11 @@ private struct KidoXBackupPreferences: Codable {
         self.glassStrength = glassStrength
         self.solidPreset = solidPreset
         self.solidCustomColor = solidCustomColor
+        self.recommendations = recommendations
     }
 
     init(from decoder: Decoder) throws {
+        recommendations = try RecommendationBackupPreferences(from: decoder)
         let container = try decoder.container(keyedBy: CodingKeys.self)
         showMenuBarIcon = try container.decode(Bool.self, forKey: .showMenuBarIcon)
         f4HotKeyEnabled = try container.decodeIfPresent(Bool.self, forKey: .f4HotKeyEnabled)
@@ -2403,6 +2409,7 @@ private struct KidoXBackupPreferences: Codable {
     }
 
     func encode(to encoder: Encoder) throws {
+        try recommendations.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(showMenuBarIcon, forKey: .showMenuBarIcon)
         try container.encode(f4HotKeyEnabled, forKey: .f4HotKeyEnabled)
@@ -2502,7 +2509,8 @@ private enum KidoXBackupManager {
             imageDarken: doubleValue(forKey: KidoXBackgroundStyle.imageDarkenStorageKey, defaultValue: 0.18, defaults: defaults),
             glassStrength: doubleValue(forKey: KidoXBackgroundStyle.glassStrengthStorageKey, defaultValue: 0.5, defaults: defaults),
             solidPreset: stringValue(forKey: KidoXBackgroundStyle.solidPresetStorageKey, defaultValue: KidoXSolidBackgroundPreset.graphite.rawValue, defaults: defaults),
-            solidCustomColor: stringValue(forKey: KidoXBackgroundStyle.solidCustomColorStorageKey, defaultValue: KidoXSolidBackgroundPreset.defaultCustomColorHex, defaults: defaults)
+            solidCustomColor: stringValue(forKey: KidoXBackgroundStyle.solidCustomColorStorageKey, defaultValue: KidoXSolidBackgroundPreset.defaultCustomColorHex, defaults: defaults),
+            recommendations: RecommendationPreferences.shared.backup
         )
     }
 
@@ -2522,6 +2530,7 @@ private enum KidoXBackupManager {
 
     @MainActor
     private static func apply(_ preferences: KidoXBackupPreferences, customImagePath: String) {
+        RecommendationPreferences.shared.apply(preferences.recommendations)
         let defaults = UserDefaults.standard
         defaults.set(preferences.showMenuBarIcon, forKey: StatusItemController.showMenuBarIconStorageKey)
         defaults.set(preferences.f4HotKeyEnabled, forKey: KidoXActivationPreferenceKeys.f4HotKeyEnabled)

@@ -66,7 +66,10 @@ final class SettingsWindowController: NSWindowController {
         guard let window else { return }
         if let pane {
             state.selection = pane
+        } else if RecommendationPreferences.shared.requestsManagement {
+            state.selection = .general
         }
+        RecommendationPreferences.shared.requestsManagement = false
         if !window.isVisible { window.center() }
         window.level = .normal
         showWindow(nil)

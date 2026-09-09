@@ -208,16 +208,36 @@ final class KidoXStore {
         didSet {
             visibleItemsCache.removeAll()
             refreshSearchIndex()
+            refreshRecommendationItems()
         }
     }
+    let recommendationPreferences = RecommendationPreferences.shared
+    private(set) var recommendationItems: [LaunchItem] = []
     private var searchIndex = ApplicationSearchIndex()
     @ObservationIgnored nonisolated(unsafe) private var searchIndexTask: Task<Void, Never>?
     private(set) var searchIndexRevision = 0
     @ObservationIgnored nonisolated(unsafe) private var searchDefaultsObserver: NSObjectProtocol?
+    private(set) var presentationSessionID = UUID()
+    private var presentationNavigation = LauncherNavigationState()
+    var presentationPageID: LauncherPageID? {
+        get { presentationNavigation.pageID }
+        set { presentationNavigation.pageID = newValue }
+    }
+    var presentationPageBeforeSearch: LauncherPageID? {
+        get { presentationNavigation.pageBeforeSearch }
+        set { presentationNavigation.pageBeforeSearch = newValue }
+    }
+    private var recommendationSnapshot = ApplicationRecommendationSnapshot()
+    private var recommendationSnapshotLayout: RecommendationLayout = .sixByFour
+    private var unavailableRecommendationKeys = Set<String>()
+    private var recommendationValidationTask: Task<Void, Never>?
+    @ObservationIgnored nonisolated(unsafe) private var recommendationPreferencesObserver: NSObjectProtocol?
     var searchQuery = ""
     var searchFocusRequestID = 0
     var selectedItemID: LaunchItem.ID?
-    var isLoading = false
+    var isLoading = false {
+        didSet { if !isLoading { prepareInitialRecommendationSnapshotIfNeeded() } }
+    }
     var lastScanDate: Date?
     var errorMessage: String?
     var screenMetrics = ScreenMetrics()
@@ -227,7 +247,9 @@ final class KidoXStore {
     private let database = KidoXDatabase()
     private let uninstaller = ApplicationUninstaller()
     private var applicationDirectoryMonitor: ApplicationDirectoryMonitor?
-    private var didLoadPersistedApplications = false
+    private var didLoadPersistedApplications = false {
+        didSet { prepareInitialRecommendationSnapshotIfNeeded() }
+    }
     private var isRefreshingApplications = false
     private var initialApplicationRefreshTask: Task<Void, Never>?
     private var pendingApplicationRefreshTask: Task<Void, Never>?
@@ -240,6 +262,11 @@ final class KidoXStore {
             forName: UserDefaults.didChangeNotification, object: nil, queue: .main
         ) { [weak self] _ in
             Task { @MainActor [weak self] in self?.refreshSearchIndex() }
+        }
+        recommendationPreferencesObserver = NotificationCenter.default.addObserver(
+            forName: RecommendationPreferences.didChange, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.handleRecommendationPreferencesChange() }
         }
         externalPagesObserver = NotificationCenter.default.addObserver(
             forName: .kidoXPagesDidChangeExternally,
@@ -255,6 +282,9 @@ final class KidoXStore {
     deinit {
         if let searchDefaultsObserver { NotificationCenter.default.removeObserver(searchDefaultsObserver) }
         searchIndexTask?.cancel()
+        if let recommendationPreferencesObserver {
+            NotificationCenter.default.removeObserver(recommendationPreferencesObserver)
+        }
         if let externalPagesObserver {
             NotificationCenter.default.removeObserver(externalPagesObserver)
         }
@@ -304,6 +334,95 @@ final class KidoXStore {
         didLoadPersistedApplications = true
         isLoading = false
         errorMessage = nil
+        beginPresentationSession()
+    }
+
+    var recommendationsAreReady: Bool { recommendationSnapshot.isReady }
+
+    /// Called only at an actual hidden-to-visible transition, never during prewarming.
+    func beginPresentationSession() {
+        // Restore before the first visible frame, including when search destroyed its view.
+        presentationNavigation.resumeBrowsing()
+        presentationSessionID = UUID()
+        searchQuery = ""
+        openFolderID = nil
+        renewRecommendationSnapshot()
+    }
+
+    private func handleRecommendationPreferencesChange() {
+        if recommendationSnapshotLayout != recommendationPreferences.layout {
+            renewRecommendationSnapshot()
+        } else {
+            refreshRecommendationItems()
+        }
+    }
+
+    func renewRecommendationSnapshot() {
+        recommendationValidationTask?.cancel()
+        unavailableRecommendationKeys.removeAll()
+        recommendationSnapshotLayout = recommendationPreferences.layout
+        recommendationSnapshot.begin(
+            items: items,
+            excluding: recommendationPreferences.excludedKeys,
+            dataIsReady: didLoadPersistedApplications && !(isLoading && pages.isEmpty),
+            limit: recommendationSnapshotLayout.capacity
+        )
+        refreshRecommendationItems()
+        validateRecommendationPaths()
+    }
+
+    private func prepareInitialRecommendationSnapshotIfNeeded() {
+        guard !recommendationSnapshot.isReady, didLoadPersistedApplications,
+              !(isLoading && pages.isEmpty) else { return }
+        renewRecommendationSnapshot()
+    }
+
+    private func refreshRecommendationItems() {
+        recommendationItems = recommendationSnapshot.resolve(
+            items: pages.flatMap(\.items), excluding: recommendationPreferences.excludedKeys,
+            unavailable: unavailableRecommendationKeys
+        )
+    }
+
+    private func validateRecommendationPaths() {
+        let sessionID = presentationSessionID
+        let candidates = recommendationItems.map { (ApplicationRecommendationEngine.key(for: $0), $0.sourcePath) }
+        guard !candidates.isEmpty else { return }
+        recommendationValidationTask = Task { [weak self] in
+            let invalidKeys = await Task.detached(priority: .utility) {
+                Set(candidates.compactMap { key, path in
+                    FileManager.default.fileExists(atPath: path) ? nil : key
+                })
+            }.value
+            guard !Task.isCancelled, let self, self.presentationSessionID == sessionID else { return }
+            self.unavailableRecommendationKeys.formUnion(invalidKeys)
+            self.refreshRecommendationItems()
+        }
+    }
+
+    func presentationPages(pageSize: Int, sort: KidoXLaunchSort, query: String? = nil) -> LauncherPageProjection {
+        let query = (query ?? searchQuery).trimmingCharacters(in: .whitespacesAndNewlines)
+        if sort == .default, query.isEmpty {
+            return LauncherPageProjection(
+                layoutPages: pages,
+                recommendations: recommendationPreferences.isEnabled ? recommendationItems : nil
+            )
+        }
+        return LauncherPageProjection(
+            results: cachedSortedVisibleItems(sort: sort, query: query).chunked(into: max(pageSize, 1)),
+            context: "\(sort.rawValue):\(query)"
+        )
+    }
+
+    /// Layout callers must supply a real page identity, never a virtual display index.
+    func moveRootItem(itemID: UUID, toLayoutPage pageID: LauncherPageID, toSlot slot: Int) -> PageMutationResult {
+        guard let id = pageID.layoutID, let position = orderedPages.firstIndex(where: { $0.id == id }) else { return .none }
+        return moveRootItem(itemID: itemID, toPage: position, toSlot: slot)
+    }
+
+    func moveItemToRootPage(itemID: UUID, toLayoutPage pageID: LauncherPageID, toSlot slot: Int) -> PageMutationResult {
+        guard let id = pageID.layoutID, let position = orderedPages.firstIndex(where: { $0.id == id }) else { return .none }
+        return moveItemToRootPage(itemID: itemID, toPage: position, toSlot: slot)
     }
 
     func visiblePages(pageSize: Int, sort: KidoXLaunchSort = .default) -> [[LaunchItem]] {
@@ -498,6 +617,8 @@ final class KidoXStore {
             Task { @MainActor [weak self] in
                 if let error {
                     self?.errorMessage = error.localizedDescription
+                    self?.refreshApplicationsInBackground()
+                    self?.validateRecommendationPaths()
                     return
                 }
 

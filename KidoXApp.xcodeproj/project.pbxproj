@@ -52,8 +52,17 @@
 		D2B7062A8DBB9E674D9AAE9B /* Poof in Resources */ = {isa = PBXBuildFile; fileRef = D2B7062B8DBB9E674D9AAE9B /* Poof */; };
 		DFE2E0CF2FECCACB00051B70 /* UninstallerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = DFE2E0CE2FECCAC100051B70 /* UninstallerView.swift */; };
 		E04C43417AB56ACEA3D08FB6 /* KidoX.icon in Resources */ = {isa = PBXBuildFile; fileRef = 0680A3CD8545019456F5B5BA /* KidoX.icon */; };
+		62F32E44793E0AC1325CB15A /* ApplicationRecommendationEngine.swift in Sources */ = { isa = PBXBuildFile; fileRef = 7C343122E74E6130715E6148 /* ApplicationRecommendationEngine.swift */; };
+		C6373A2D4EAF6ABFE51ACF5A /* LauncherPresentationPage.swift in Sources */ = { isa = PBXBuildFile; fileRef = 76244138CCE916DA86A0D69B /* LauncherPresentationPage.swift */; };
+		CDDE2B6DF296FE2D32413696 /* RecommendationPreferences.swift in Sources */ = { isa = PBXBuildFile; fileRef = AD130358AD5D9DB014E21377 /* RecommendationPreferences.swift */; };
+		92AD21594710391BD97386A2 /* RecommendationsPageView.swift in Sources */ = { isa = PBXBuildFile; fileRef = F5F951DBA58C9372AA82E32C /* RecommendationsPageView.swift */; };
+		EFF34F671AB81DC16F2DCF02 /* RecommendationSettingsSection.swift in Sources */ = { isa = PBXBuildFile; fileRef = 1EDA56C87DAB422A1631F5D1 /* RecommendationSettingsSection.swift */; };
 		742BF4B1ECBDAA912C073EFB /* LaunchItem.swift in Test Sources */ = { isa = PBXBuildFile; fileRef = DAE85AA7DC3E9BBD736879FB /* LaunchItem.swift */; };
 		3A843B1AFB6E73D965C3E23B /* LaunchPage.swift in Test Sources */ = { isa = PBXBuildFile; fileRef = 0E9CD6E68011C426EB7E63BE /* LaunchPage.swift */; };
+		DCCB5626E06EBE7447E049B9 /* ApplicationRecommendationEngine.swift in Test Sources */ = { isa = PBXBuildFile; fileRef = 7C343122E74E6130715E6148 /* ApplicationRecommendationEngine.swift */; };
+		7C8EBC9B40499271916F014B /* LauncherPresentationPage.swift in Test Sources */ = { isa = PBXBuildFile; fileRef = 76244138CCE916DA86A0D69B /* LauncherPresentationPage.swift */; };
+		CB227BBF27E03B17A6B7EF76 /* RecommendationPreferences.swift in Test Sources */ = { isa = PBXBuildFile; fileRef = AD130358AD5D9DB014E21377 /* RecommendationPreferences.swift */; };
+		2CDFE352EE1E5598D9EA24D0 /* RecommendationsTests.swift in Test Sources */ = { isa = PBXBuildFile; fileRef = 6CA788B4E019AD7094596A62 /* RecommendationsTests.swift */; };
 		CBC34F599682D4513D4A6E03 /* PinyinSearchNormalizer.swift in Test Sources */ = {isa = PBXBuildFile; fileRef = E7F24D25BA776ABA62309B4D; };
 		DCC4F36FD024DC603EC1F6BA /* PinyinSearchNormalizer.swift in Sources */ = {isa = PBXBuildFile; fileRef = E7F24D25BA776ABA62309B4D; };
 		E91BAC248DA9703A6B9A3703 /* ApplicationSearchIndex.swift in Test Sources */ = {isa = PBXBuildFile; fileRef = A8A95178D2DE4685BFE4FC98; };
@@ -168,6 +177,12 @@
 		DFE2E0CE2FECCAC100051B70 /* UninstallerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = UninstallerView.swift; sourceTree = "<group>"; };
 		EFD567238E5AC9A0DCC04022 /* KidoXStore.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KidoXStore.swift; sourceTree = "<group>"; };
 		FB0B2C8BD037AFB34AFD5A43 /* KidoXIPC.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = KidoXIPC.swift; sourceTree = "<group>"; };
+		7C343122E74E6130715E6148 /* ApplicationRecommendationEngine.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationRecommendationEngine.swift; sourceTree = "<group>"; };
+		76244138CCE916DA86A0D69B /* LauncherPresentationPage.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherPresentationPage.swift; sourceTree = "<group>"; };
+		AD130358AD5D9DB014E21377 /* RecommendationPreferences.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationPreferences.swift; sourceTree = "<group>"; };
+		F5F951DBA58C9372AA82E32C /* RecommendationsPageView.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationsPageView.swift; sourceTree = "<group>"; };
+		1EDA56C87DAB422A1631F5D1 /* RecommendationSettingsSection.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationSettingsSection.swift; sourceTree = "<group>"; };
+		6CA788B4E019AD7094596A62 /* RecommendationsTests.swift */ = { isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RecommendationsTests.swift; sourceTree = "<group>"; };
 		61B02A2FE1D8318FDBB053EC /* KidoXTests.xctest */ = { isa = PBXFileReference; explicitFileType = wrapper.cfbundle; path = KidoXTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		E7F24D25BA776ABA62309B4D /* PinyinSearchNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinyinSearchNormalizer.swift; sourceTree = "<group>"; };
 		A8A95178D2DE4685BFE4FC98 /* ApplicationSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSearchIndex.swift; sourceTree = "<group>"; };
@@ -217,6 +232,7 @@
 		0DAF930A751289665F138324 /* Models */ = {
 			isa = PBXGroup;
 			children = (
+				76244138CCE916DA86A0D69B /* LauncherPresentationPage.swift */,
 				DAE85AA7DC3E9BBD736879FB /* LaunchItem.swift */,
 				0E9CD6E68011C426EB7E63BE /* LaunchPage.swift */,
 			);
@@ -297,6 +313,7 @@
 		618809C0631D89D83C8D4B4B /* Stores */ = {
 			isa = PBXGroup;
 			children = (
+				AD130358AD5D9DB014E21377 /* RecommendationPreferences.swift */,
 				EFD567238E5AC9A0DCC04022 /* KidoXStore.swift */,
 				3E3EA0D2488379B13239E81D /* ScreenMetrics.swift */,
 			);
@@ -308,6 +325,7 @@
 			children = (
 				A8A95178D2DE4685BFE4FC98 /* ApplicationSearchIndex.swift */,
 				E7F24D25BA776ABA62309B4D /* PinyinSearchNormalizer.swift */,
+				7C343122E74E6130715E6148 /* ApplicationRecommendationEngine.swift */,
 				9EA4D3AE0BC679D2052B0756 /* ApplicationDirectoryMonitor.swift */,
 				A1000000000000000000001A /* ApplicationUninstaller.swift */,
 				20304E500EC07865B67C86C2 /* ApplicationScanner.swift */,
@@ -334,6 +352,8 @@
 		BD51A75CA87F55B762F85E74 /* Views */ = {
 			isa = PBXGroup;
 			children = (
+				1EDA56C87DAB422A1631F5D1 /* RecommendationSettingsSection.swift */,
+				F5F951DBA58C9372AA82E32C /* RecommendationsPageView.swift */,
 				DFE2E0CE2FECCAC100051B70 /* UninstallerView.swift */,
 				3452AE295A50BC705810D4B9 /* ContentView.swift */,
 				B7A4E9C21D2F4A31A1B2C3D4 /* SettingsView.swift */,
@@ -389,7 +409,7 @@
 			sourceTree = "<group>";
 		};
 		F2522487EC9F300A19471E3D /* KidoXTests */ = { isa = PBXGroup; children = (
-				7909F00B096F6E1CDE732053 /* SearchTests.swift */,); path = KidoXTests; sourceTree = "<group>"; };
+				7909F00B096F6E1CDE732053 /* SearchTests.swift */,6CA788B4E019AD7094596A62 /* RecommendationsTests.swift */,); path = KidoXTests; sourceTree = "<group>"; };
 /* End PBXGroup section */
 
 /* Begin PBXHeadersBuildPhase section */
@@ -616,6 +636,11 @@
 			files = (
 				DCC4F36FD024DC603EC1F6BA /* PinyinSearchNormalizer.swift in Sources */,
 				19415B3E31E156D90BE5A0E6 /* ApplicationSearchIndex.swift in Sources */,
+				EFF34F671AB81DC16F2DCF02 /* RecommendationSettingsSection.swift in Sources */,
+				92AD21594710391BD97386A2 /* RecommendationsPageView.swift in Sources */,
+				CDDE2B6DF296FE2D32413696 /* RecommendationPreferences.swift in Sources */,
+				C6373A2D4EAF6ABFE51ACF5A /* LauncherPresentationPage.swift in Sources */,
+				62F32E44793E0AC1325CB15A /* ApplicationRecommendationEngine.swift in Sources */,
 				7B7C420BEA1CD08D80A90BEE /* main.swift in Sources */,
 				A10000000000000000000001 /* KidoXActivationController.swift in Sources */,
 				A10000000000000000000002 /* KidoXPanelController.swift in Sources */,
@@ -663,7 +688,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		9E6B8FD06F3B1E07B6ECB797 /* PBXSourcesBuildPhase */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (278FA1BF5A9391A6FFDAB385 /* SearchTests.swift in Test Sources */, 10EB86B101F73697C28F9E59 /* KidoXLocalization.swift in Test Sources */, 1F95764AC335CCF076ACBFC9 /* ApplicationScanner.swift in Test Sources */, E91BAC248DA9703A6B9A3703 /* ApplicationSearchIndex.swift in Test Sources */, CBC34F599682D4513D4A6E03 /* PinyinSearchNormalizer.swift in Test Sources */, 742BF4B1ECBDAA912C073EFB /* LaunchItem.swift in Test Sources */, 3A843B1AFB6E73D965C3E23B /* LaunchPage.swift in Test Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
+		9E6B8FD06F3B1E07B6ECB797 /* PBXSourcesBuildPhase */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (278FA1BF5A9391A6FFDAB385 /* SearchTests.swift in Test Sources */, 10EB86B101F73697C28F9E59 /* KidoXLocalization.swift in Test Sources */, 1F95764AC335CCF076ACBFC9 /* ApplicationScanner.swift in Test Sources */, E91BAC248DA9703A6B9A3703 /* ApplicationSearchIndex.swift in Test Sources */, CBC34F599682D4513D4A6E03 /* PinyinSearchNormalizer.swift in Test Sources */, 742BF4B1ECBDAA912C073EFB /* LaunchItem.swift in Test Sources */, 3A843B1AFB6E73D965C3E23B /* LaunchPage.swift in Test Sources */, DCCB5626E06EBE7447E049B9 /* ApplicationRecommendationEngine.swift in Test Sources */, 7C8EBC9B40499271916F014B /* LauncherPresentationPage.swift in Test Sources */, CB227BBF27E03B17A6B7EF76 /* RecommendationPreferences.swift in Test Sources */, 2CDFE352EE1E5598D9EA24D0 /* RecommendationsTests.swift in Test Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */

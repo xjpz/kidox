@@ -135,6 +135,7 @@ final class KidoXPanelController {
     }
 
     private func present() {
+        store.beginPresentationSession()
         let targetScreen = screenForPresentation()
         let panel = panel ?? makePanel(for: targetScreen)
         self.panel = panel
@@ -197,6 +198,7 @@ final class KidoXPanelController {
 
         store.prepareCachedApplicationsForPresentation()
         store.markPreparingForInitialPresentation()
+        store.beginPresentationSession()
 
         let targetScreen = screenForPresentation()
         let panel = panel ?? makePanel(for: targetScreen)
@@ -939,6 +941,7 @@ final class KidoXPanelController {
     private func prepareHiddenPanelForInteractiveGesturePresentation() {
         store.prepareCachedApplicationsForPresentation()
         store.markPreparingForInitialPresentation()
+        store.beginPresentationSession()
 
         let targetScreen = screenForPresentation()
         let panel = panel ?? makePanel(for: targetScreen)
