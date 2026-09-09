@@ -26,6 +26,7 @@ Core features:
 
 - Launchpad-style app grid with pages, folders, drag-and-drop arrangement, and keyboard navigation
 - Fast in-place search with Chinese names, full pinyin, and pinyin initials
+- An optional frequent-apps page to the left of the first page in Default sorting, with compact 6 × 4 (up to 24 apps) or 7 × 5 (up to 35 apps) layouts that keep the original app arrangement intact
 - F4 / Launchpad key support, custom shortcuts, hot corners, menu-bar access, and Dock access
 - Optional global four-finger trackpad gesture: pinch to show KidoX, spread to hide it
 - Automatic scanning of standard Applications folders
@@ -38,7 +39,7 @@ Pro features:
 - Hidden Apps for keeping rarely used apps out of the launch panel
 - Built-in app uninstaller with related app data cleanup and protected-system-app checks
 - Custom image backgrounds
-- Backup and restore for layout, hidden apps, launch stats, sorting, shortcut, appearance, Dock icon, and custom image
+- Backup and restore for layout, hidden apps, launch stats, sorting, shortcut, appearance, Dock icon, custom image, and frequent-apps preferences
 
 The four-finger gesture is optional and disabled by default. It uses a runtime-loaded private macOS multitouch framework, so official KidoX builds are distributed outside the Mac App Store.
 
@@ -81,12 +82,26 @@ xcodebuild -project KidoXApp.xcodeproj -scheme KidoX -configuration Debug build
 
 The project uses Swift Package Manager dependencies resolved by Xcode.
 
+### Frequent Apps
+
+Enable or disable the page in **Settings → General → Frequent Apps** (设置 → 通用 → 负一屏). It appears only with Default sorting when no search is active.
+
+- **6 × 4** is the default, showing up to **24 apps**; **7 × 5** shows up to **35 apps**.
+- Both layouts use compact spacing, keep partial rows left-aligned, and omit page headings and subtitles. Arrow-key navigation follows the selected column count.
+- Layout changes take effect immediately and are saved automatically. Disabling the page keeps the selected layout; settings backups also include the switch, layout, and excluded apps. Older configurations default to 6 × 4.
+- Recommendations use existing local KidoX launch counts, including apps inside folders. Launches from Dock or Finder are not tracked. Hidden, unavailable, and excluded apps do not appear.
+- Right-click an app to stop recommending it, or restore excluded apps in Settings. Recommendation order stays stable until the next opening; changing the layout refreshes the list for the selected capacity.
+
+Reopening the launcher remembers the last browsed page, including Frequent Apps, for the current app run. Reopening from search returns to the page before search; a full app restart starts on the original first page. See [Frequent Apps details](docs/recommendations.md) for behavior and persistence rules.
+
+### Search and Tests
+
 Search supports Chinese text, English names, full pinyin, and pinyin initials: `x` or `xtsz` finds 系统设置, and `wx` or `weixin` finds 微信. With Default sorting, exact initials rank ahead of longer prefix matches. Language-tagged aliases keep unrelated foreign names out of single-letter searches. Search indexes are built in the background and updated when names change.
 
-Run the focused search and compatibility tests with:
+Run the focused search, recommendation, page mapping, and compatibility tests with:
 
 ```sh
-xcodebuild -project KidoXApp.xcodeproj -scheme KidoXSearch -destination 'platform=macOS' test
+xcodebuild -project KidoXApp.xcodeproj -scheme KidoXRecommendations -destination 'platform=macOS' test
 ```
 
 This test scheme runs without launching KidoX or loading its user database. The tests are also registered in the main `KidoX` scheme.
