@@ -22,15 +22,17 @@ struct RecommendationBackupPreferences: Codable, Equatable {
     var recommendationsEnabled = true
     var recommendationLayout: RecommendationLayout = .sixByFour
     var recommendationExclusions: [RecommendationExclusion] = []
+    var pinnedApplications: [RecommendationExclusion] = []
 
-    init(enabled: Bool = true, layout: RecommendationLayout = .sixByFour, exclusions: [RecommendationExclusion] = []) {
+    init(enabled: Bool = true, layout: RecommendationLayout = .sixByFour, exclusions: [RecommendationExclusion] = [], pins: [RecommendationExclusion] = []) {
         recommendationsEnabled = enabled
         recommendationLayout = layout
         recommendationExclusions = exclusions
+        pinnedApplications = pins
     }
 
     private enum CodingKeys: String, CodingKey {
-        case recommendationsEnabled, recommendationLayout, recommendationExclusions
+        case recommendationsEnabled, recommendationLayout, recommendationExclusions, pinnedApplications
     }
 
     init(from decoder: Decoder) throws {
@@ -39,6 +41,7 @@ struct RecommendationBackupPreferences: Codable, Equatable {
         let layoutRaw = try container.decodeIfPresent(String.self, forKey: .recommendationLayout)
         recommendationLayout = layoutRaw.flatMap(RecommendationLayout.init(rawValue:)) ?? .sixByFour
         recommendationExclusions = try container.decodeIfPresent([RecommendationExclusion].self, forKey: .recommendationExclusions) ?? []
+        pinnedApplications = try container.decodeIfPresent([RecommendationExclusion].self, forKey: .pinnedApplications) ?? []
     }
 }
 
@@ -49,8 +52,13 @@ final class RecommendationPreferences {
     static let enabledKey = "KidoX.recommendations.enabled"
     static let layoutKey = "KidoX.recommendations.layout"
     static let exclusionsKey = "KidoX.recommendations.exclusions"
+    static let pinsKey = "KidoX.recommendations.pins"
     static let didChange = Notification.Name("KidoX.recommendations.didChange")
     var showsExclusions = false
+    var showsPins = false
+    var feedback: String?
+    private(set) var pins: [RecommendationExclusion] = []
+    @ObservationIgnored private var isUpdating = false
     var requestsManagement = false
 
     var isEnabled: Bool {
@@ -84,16 +92,69 @@ final class RecommendationPreferences {
         layout = defaults.string(forKey: Self.layoutKey).flatMap(RecommendationLayout.init(rawValue:)) ?? .sixByFour
         exclusions = defaults.data(forKey: Self.exclusionsKey)
             .flatMap { try? JSONDecoder().decode([RecommendationExclusion].self, from: $0) } ?? []
+        pins = Self.normalizedPins(defaults.data(forKey: Self.pinsKey)
+            .flatMap { try? JSONDecoder().decode([RecommendationExclusion].self, from: $0) } ?? [])
+        let pinned = pinnedKeys
+        exclusions.removeAll { pinned.contains($0.applicationKey) }
+    }
+
+    var pinnedKeys: Set<String> { Set(pins.map(\.applicationKey)) }
+    var canPinMore: Bool { pins.count < layout.capacity }
+    func isPinned(_ item: LaunchItem) -> Bool { pinnedKeys.contains(ApplicationRecommendationEngine.key(for: item)) }
+
+    @discardableResult
+    func pin(_ item: LaunchItem) -> Bool {
+        guard item.kind == .application, !isPinned(item), canPinMore else { return false }
+        isUpdating = true
+        let key = ApplicationRecommendationEngine.key(for: item)
+        exclusions.removeAll { $0.applicationKey == key }
+        pins.append(.init(applicationKey: key, displayName: item.effectiveDisplayName))
+        isUpdating = false
+        savePins()
+        feedback = isEnabled ? nil : "Pinned. Enable Frequent Apps to show it."
+        return true
+    }
+
+    func unpin(_ key: String) {
+        pins.removeAll { $0.applicationKey == key }
+        savePins()
+        feedback = "Unpinned. This app may still appear in Frequent Apps."
+    }
+
+    func movePin(_ key: String, before destination: String?) {
+        guard key != destination, let index = pins.firstIndex(where: { $0.applicationKey == key }) else { return }
+        let entry = pins.remove(at: index)
+        let target = destination.flatMap { key in pins.firstIndex { $0.applicationKey == key } } ?? pins.endIndex
+        pins.insert(entry, at: target)
+        savePins()
+    }
+
+    func movePin(_ key: String, by offset: Int) {
+        guard let index = pins.firstIndex(where: { $0.applicationKey == key }) else { return }
+        let target = min(max(index + offset, 0), pins.count - 1)
+        guard target != index else { return }
+        pins.insert(pins.remove(at: index), at: target)
+        savePins()
+    }
+
+    private func savePins() {
+        if let data = try? JSONEncoder().encode(pins) { defaults.set(data, forKey: Self.pinsKey) }
+        notifyChange()
+    }
+
+    private static func normalizedPins(_ values: [RecommendationExclusion]) -> [RecommendationExclusion] {
+        var seen = Set<String>()
+        return Array(values.filter { !$0.applicationKey.isEmpty && seen.insert($0.applicationKey).inserted }.prefix(35))
     }
 
     var excludedKeys: Set<String> { Set(exclusions.map(\.applicationKey)) }
     var backup: RecommendationBackupPreferences {
-        RecommendationBackupPreferences(enabled: isEnabled, layout: layout, exclusions: exclusions)
+        RecommendationBackupPreferences(enabled: isEnabled, layout: layout, exclusions: exclusions, pins: pins)
     }
 
     func exclude(_ item: LaunchItem) {
         let key = ApplicationRecommendationEngine.key(for: item)
-        guard !excludedKeys.contains(key) else { return }
+        guard !pinnedKeys.contains(key), !excludedKeys.contains(key) else { return }
         exclusions.append(RecommendationExclusion(applicationKey: key, displayName: item.effectiveDisplayName))
     }
 
@@ -101,13 +162,18 @@ final class RecommendationPreferences {
     func restoreAll() { exclusions.removeAll() }
 
     func apply(_ backup: RecommendationBackupPreferences) {
+        isUpdating = true
+        pins = Self.normalizedPins(backup.pinnedApplications)
         isEnabled = backup.recommendationsEnabled
         layout = backup.recommendationLayout
         var seen = Set<String>()
-        exclusions = backup.recommendationExclusions.filter { seen.insert($0.applicationKey).inserted }
+        exclusions = backup.recommendationExclusions.filter { !pinnedKeys.contains($0.applicationKey) && seen.insert($0.applicationKey).inserted }
+        isUpdating = false
+        savePins()
     }
 
     private func notifyChange() {
+        guard !isUpdating else { return }
         NotificationCenter.default.post(name: Self.didChange, object: self)
     }
 }

@@ -91,7 +91,7 @@ final class KidoXGlobalTrackpadGestureMonitor: @unchecked Sendable {
     }
 
     private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.clyapps.KidoX",
+        subsystem: Bundle.main.bundleIdentifier ?? "cc.xjpz.KidoX",
         category: "TrackpadGesture"
     )
 

@@ -70,6 +70,11 @@
 		278FA1BF5A9391A6FFDAB385 /* SearchTests.swift in Test Sources */ = {isa = PBXBuildFile; fileRef = 7909F00B096F6E1CDE732053; };
 		1F95764AC335CCF076ACBFC9 /* ApplicationScanner.swift in Test Sources */ = {isa = PBXBuildFile; fileRef = 20304E500EC07865B67C86C2; };
 		10EB86B101F73697C28F9E59 /* KidoXLocalization.swift in Test Sources */ = {isa = PBXBuildFile; fileRef = A1000000000000000000001C; };
+		2B477C60F86EFD3C43C41B9A /* LauncherPresentationPreferences.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9054B7CDFEEECC2816301C2F; };
+		9DCFC0C056F3E5FEB5D6774F /* LauncherPresentationPreferences.swift in Test Sources */ = {isa = PBXBuildFile; fileRef = 9054B7CDFEEECC2816301C2F; };
+		E4201070570EEDBF1F22F478 /* PinnedApplicationsView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2DB8095143DF4C0FAC26475F; };
+		1E38AB493F422ECBBF870BA2 /* CompactLauncherView.swift in Sources */ = {isa = PBXBuildFile; fileRef = F3B2D30763C75F2D396A9AC5; };
+		566118435992CEF4BD5973CB /* CompactLauncherPanelController.swift in Sources */ = {isa = PBXBuildFile; fileRef = 668A16FBC2DB4B64D4829DD7; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -165,7 +170,7 @@
 		B20000000000000000000003 /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		B20000000000000000000004 /* Info.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B20000000000000000000005 /* Launchd.plist */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.xml; path = Launchd.plist; sourceTree = "<group>"; };
-		B20000000000000000000006 /* com.clyapps.KidoX.PrivilegedHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = com.clyapps.KidoX.PrivilegedHelper; sourceTree = BUILT_PRODUCTS_DIR; };
+		B20000000000000000000006 /* cc.xjpz.KidoX.PrivilegedHelper */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = cc.xjpz.KidoX.PrivilegedHelper; sourceTree = BUILT_PRODUCTS_DIR; };
 		B4F881AF6BD83DB604C679F6 /* main.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		B7A4E9C01D2F4A31A1B2C3D4 /* ClyAppLicenseService.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ClyAppLicenseService.swift; sourceTree = "<group>"; };
 		B7A4E9C21D2F4A31A1B2C3D4 /* SettingsView.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = SettingsView.swift; sourceTree = "<group>"; };
@@ -187,6 +192,10 @@
 		E7F24D25BA776ABA62309B4D /* PinyinSearchNormalizer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinyinSearchNormalizer.swift; sourceTree = "<group>"; };
 		A8A95178D2DE4685BFE4FC98 /* ApplicationSearchIndex.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ApplicationSearchIndex.swift; sourceTree = "<group>"; };
 		7909F00B096F6E1CDE732053 /* SearchTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SearchTests.swift; sourceTree = "<group>"; };
+		9054B7CDFEEECC2816301C2F /* LauncherPresentationPreferences.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LauncherPresentationPreferences.swift; sourceTree = "<group>"; };
+		2DB8095143DF4C0FAC26475F /* PinnedApplicationsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PinnedApplicationsView.swift; sourceTree = "<group>"; };
+		F3B2D30763C75F2D396A9AC5 /* CompactLauncherView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactLauncherView.swift; sourceTree = "<group>"; };
+		668A16FBC2DB4B64D4829DD7 /* CompactLauncherPanelController.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CompactLauncherPanelController.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -256,7 +265,7 @@
 				601FA2917A744135B0042970 /* KidoX.app */,
 				1B29917FF76C91AA3B28D31E /* KidoXIPC.framework */,
 				41D000000000000000000007 /* KidoXDockTile.docktileplugin */,
-				B20000000000000000000006 /* com.clyapps.KidoX.PrivilegedHelper */,
+				B20000000000000000000006 /* cc.xjpz.KidoX.PrivilegedHelper */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -314,6 +323,7 @@
 			isa = PBXGroup;
 			children = (
 				AD130358AD5D9DB014E21377 /* RecommendationPreferences.swift */,
+				9054B7CDFEEECC2816301C2F /* LauncherPresentationPreferences.swift */,
 				EFD567238E5AC9A0DCC04022 /* KidoXStore.swift */,
 				3E3EA0D2488379B13239E81D /* ScreenMetrics.swift */,
 			);
@@ -353,6 +363,8 @@
 			isa = PBXGroup;
 			children = (
 				1EDA56C87DAB422A1631F5D1 /* RecommendationSettingsSection.swift */,
+				F3B2D30763C75F2D396A9AC5 /* CompactLauncherView.swift */,
+				2DB8095143DF4C0FAC26475F /* PinnedApplicationsView.swift */,
 				F5F951DBA58C9372AA82E32C /* RecommendationsPageView.swift */,
 				DFE2E0CE2FECCAC100051B70 /* UninstallerView.swift */,
 				3452AE295A50BC705810D4B9 /* ContentView.swift */,
@@ -402,6 +414,7 @@
 				0B9C7D8D6F5A43210C1D2E3F /* KidoXActivationController.swift */,
 				A20000000000000000000002 /* KidoXGlobalTrackpadGestureMonitor.swift */,
 				513584E23FCA3DCCF444ECC8 /* KidoXPanelController.swift */,
+				668A16FBC2DB4B64D4829DD7 /* CompactLauncherPanelController.swift */,
 				B7A4E9C41D2F4A31A1B2C3D4 /* SettingsWindowController.swift */,
 				8CF73965B84FC0BACF4502AA /* StatusItemController.swift */,
 			);
@@ -453,8 +466,8 @@
 			dependencies = (
 			);
 			name = KidoXPrivilegedHelper;
-			productName = com.clyapps.KidoX.PrivilegedHelper;
-			productReference = B20000000000000000000006 /* com.clyapps.KidoX.PrivilegedHelper */;
+			productName = cc.xjpz.KidoX.PrivilegedHelper;
+			productReference = B20000000000000000000006 /* cc.xjpz.KidoX.PrivilegedHelper */;
 			productType = "com.apple.product-type.tool";
 		};
 		DD640009D9243144E9F00971 /* KidoXIPC */ = {
@@ -607,17 +620,17 @@
 			inputFileListPaths = (
 			);
 			inputPaths = (
-				"$(BUILT_PRODUCTS_DIR)/com.clyapps.KidoX.PrivilegedHelper",
+				"$(BUILT_PRODUCTS_DIR)/cc.xjpz.KidoX.PrivilegedHelper",
 			);
 			name = "Embed Privileged Helper";
 			outputFileListPaths = (
 			);
 			outputPaths = (
-				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchServices/com.clyapps.KidoX.PrivilegedHelper",
+				"$(TARGET_BUILD_DIR)/$(CONTENTS_FOLDER_PATH)/Library/LaunchServices/cc.xjpz.KidoX.PrivilegedHelper",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/sh;
-			shellScript = "set -e\nhelper_name=\"com.clyapps.KidoX.PrivilegedHelper\"\ndestination=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchServices/$helper_name\"\nmkdir -p \"$(dirname \"$destination\")\"\ncp \"$BUILT_PRODUCTS_DIR/$helper_name\" \"$destination\"\n";
+			shellScript = "set -e\nhelper_name=\"cc.xjpz.KidoX.PrivilegedHelper\"\ndestination=\"$TARGET_BUILD_DIR/$CONTENTS_FOLDER_PATH/Library/LaunchServices/$helper_name\"\nmkdir -p \"$(dirname \"$destination\")\"\ncp \"$BUILT_PRODUCTS_DIR/$helper_name\" \"$destination\"\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
@@ -636,6 +649,10 @@
 			files = (
 				DCC4F36FD024DC603EC1F6BA /* PinyinSearchNormalizer.swift in Sources */,
 				19415B3E31E156D90BE5A0E6 /* ApplicationSearchIndex.swift in Sources */,
+				2B477C60F86EFD3C43C41B9A /* LauncherPresentationPreferences.swift in Sources */,
+				E4201070570EEDBF1F22F478 /* PinnedApplicationsView.swift in Sources */,
+				1E38AB493F422ECBBF870BA2 /* CompactLauncherView.swift in Sources */,
+				566118435992CEF4BD5973CB /* CompactLauncherPanelController.swift in Sources */,
 				EFF34F671AB81DC16F2DCF02 /* RecommendationSettingsSection.swift in Sources */,
 				92AD21594710391BD97386A2 /* RecommendationsPageView.swift in Sources */,
 				CDDE2B6DF296FE2D32413696 /* RecommendationPreferences.swift in Sources */,
@@ -688,7 +705,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		9E6B8FD06F3B1E07B6ECB797 /* PBXSourcesBuildPhase */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (278FA1BF5A9391A6FFDAB385 /* SearchTests.swift in Test Sources */, 10EB86B101F73697C28F9E59 /* KidoXLocalization.swift in Test Sources */, 1F95764AC335CCF076ACBFC9 /* ApplicationScanner.swift in Test Sources */, E91BAC248DA9703A6B9A3703 /* ApplicationSearchIndex.swift in Test Sources */, CBC34F599682D4513D4A6E03 /* PinyinSearchNormalizer.swift in Test Sources */, 742BF4B1ECBDAA912C073EFB /* LaunchItem.swift in Test Sources */, 3A843B1AFB6E73D965C3E23B /* LaunchPage.swift in Test Sources */, DCCB5626E06EBE7447E049B9 /* ApplicationRecommendationEngine.swift in Test Sources */, 7C8EBC9B40499271916F014B /* LauncherPresentationPage.swift in Test Sources */, CB227BBF27E03B17A6B7EF76 /* RecommendationPreferences.swift in Test Sources */, 2CDFE352EE1E5598D9EA24D0 /* RecommendationsTests.swift in Test Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
+		9E6B8FD06F3B1E07B6ECB797 /* PBXSourcesBuildPhase */ = { isa = PBXSourcesBuildPhase; buildActionMask = 2147483647; files = (278FA1BF5A9391A6FFDAB385 /* SearchTests.swift in Test Sources */, 10EB86B101F73697C28F9E59 /* KidoXLocalization.swift in Test Sources */, 1F95764AC335CCF076ACBFC9 /* ApplicationScanner.swift in Test Sources */, E91BAC248DA9703A6B9A3703 /* ApplicationSearchIndex.swift in Test Sources */, CBC34F599682D4513D4A6E03 /* PinyinSearchNormalizer.swift in Test Sources */, 742BF4B1ECBDAA912C073EFB /* LaunchItem.swift in Test Sources */, 3A843B1AFB6E73D965C3E23B /* LaunchPage.swift in Test Sources */, DCCB5626E06EBE7447E049B9 /* ApplicationRecommendationEngine.swift in Test Sources */, 7C8EBC9B40499271916F014B /* LauncherPresentationPage.swift in Test Sources */, CB227BBF27E03B17A6B7EF76 /* RecommendationPreferences.swift in Test Sources */, 9DCFC0C056F3E5FEB5D6774F /* LauncherPresentationPreferences.swift in Test Sources */, 2CDFE352EE1E5598D9EA24D0 /* RecommendationsTests.swift in Test Sources */, ); runOnlyForDeploymentPostprocessing = 0; };
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -733,7 +750,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.clyapps.KidoX.IPC;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.xjpz.KidoX.IPC;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -758,7 +775,7 @@
 				MACH_O_TYPE = mh_bundle;
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.clyapps.KidoX.DockTile;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.xjpz.KidoX.DockTile;
 				PRODUCT_NAME = KidoXDockTile;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -781,7 +798,7 @@
 				MACH_O_TYPE = mh_bundle;
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.clyapps.KidoX.DockTile;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.xjpz.KidoX.DockTile;
 				PRODUCT_NAME = KidoXDockTile;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -809,7 +826,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.5;
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = com.clyapps.KidoX.IPC;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.xjpz.KidoX.IPC;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
@@ -841,7 +858,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				MARKETING_VERSION = 1.4.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.clyapps.KidoX;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.xjpz.KidoX;
 				PRODUCT_NAME = KidoX;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
@@ -870,7 +887,7 @@
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.6;
 				MARKETING_VERSION = 1.4.2;
-				PRODUCT_BUNDLE_IDENTIFIER = com.clyapps.KidoX;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.xjpz.KidoX;
 				PRODUCT_NAME = KidoX;
 				SDKROOT = macosx;
 				SWIFT_VERSION = 6.0;
@@ -965,8 +982,8 @@
 					__launchd_plist,
 					KidoXPrivilegedHelper/Launchd.plist,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.clyapps.KidoX.PrivilegedHelper;
-				PRODUCT_NAME = com.clyapps.KidoX.PrivilegedHelper;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.xjpz.KidoX.PrivilegedHelper;
+				PRODUCT_NAME = cc.xjpz.KidoX.PrivilegedHelper;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 6.0;
@@ -998,8 +1015,8 @@
 					__launchd_plist,
 					KidoXPrivilegedHelper/Launchd.plist,
 				);
-				PRODUCT_BUNDLE_IDENTIFIER = com.clyapps.KidoX.PrivilegedHelper;
-				PRODUCT_NAME = com.clyapps.KidoX.PrivilegedHelper;
+				PRODUCT_BUNDLE_IDENTIFIER = cc.xjpz.KidoX.PrivilegedHelper;
+				PRODUCT_NAME = cc.xjpz.KidoX.PrivilegedHelper;
 				SDKROOT = macosx;
 				SKIP_INSTALL = YES;
 				SWIFT_VERSION = 6.0;
@@ -1066,7 +1083,7 @@
                 CODE_SIGN_STYLE = Automatic;
                 GENERATE_INFOPLIST_FILE = YES;
                 MACOSX_DEPLOYMENT_TARGET = 15.0;
-                PRODUCT_BUNDLE_IDENTIFIER = com.clyapps.KidoX.RecommendationsTests;
+                PRODUCT_BUNDLE_IDENTIFIER = cc.xjpz.KidoX.RecommendationsTests;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SDKROOT = macosx;
                 SUPPORTED_PLATFORMS = macosx;
@@ -1082,7 +1099,7 @@
                 CODE_SIGN_STYLE = Automatic;
                 GENERATE_INFOPLIST_FILE = YES;
                 MACOSX_DEPLOYMENT_TARGET = 15.0;
-                PRODUCT_BUNDLE_IDENTIFIER = com.clyapps.KidoX.RecommendationsTests;
+                PRODUCT_BUNDLE_IDENTIFIER = cc.xjpz.KidoX.RecommendationsTests;
                 PRODUCT_NAME = "$(TARGET_NAME)";
                 SDKROOT = macosx;
                 SUPPORTED_PLATFORMS = macosx;

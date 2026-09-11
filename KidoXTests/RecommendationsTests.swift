@@ -434,4 +434,139 @@ final class RecommendationsTests: XCTestCase {
         let items = (0..<1000).map { app("app.\($0)", count: $0 % 30 + 1) }
         measure { _ = ApplicationRecommendationEngine.rankedKeys(in: items) }
     }
+
+    func testPinnedUnusedAppsPrecedeRecommendationsAndDoNotDuplicate() {
+        let unused = app("unused", count: 0), popular = app("popular", count: 9)
+        var snapshot = ApplicationRecommendationSnapshot()
+        snapshot.begin(items: [unused, popular, app("other")], excluding: [], dataIsReady: true)
+        XCTAssertEqual(snapshot.resolve(items: [unused, popular, app("other")], excluding: [], pinnedKeys: ["unused", "popular", "unused"]).map(\.bundleIdentifier), ["unused", "popular", "other"])
+    }
+
+    func testPinnedItemsRespectHiddenParentsAndUnavailablePaths() {
+        var folder = app("folder"); folder.kind = .folder; folder.isHidden = true
+        let child = app("child", count: 0, parent: folder.id)
+        let other = app("other", count: 0)
+        var snapshot = ApplicationRecommendationSnapshot()
+        snapshot.begin(items: [folder, child, other], excluding: [], dataIsReady: true)
+        XCTAssertTrue(snapshot.resolve(items: [folder, child, other], excluding: [], unavailable: ["other"], pinnedKeys: ["child", "other"]).isEmpty)
+    }
+
+    func testUnpinRejoinsFrozenRankingAndExclusionDoesNotBackfill() {
+        let items = (1...40).map { app("app\($0)", count: $0) }
+        var snapshot = ApplicationRecommendationSnapshot()
+        snapshot.begin(items: items, excluding: [], dataIsReady: true, limit: 24)
+        let pinned = snapshot.resolve(items: items, excluding: [], pinnedKeys: ["app1"])
+        XCTAssertEqual(pinned.count, 24)
+        XCTAssertEqual(pinned.first?.bundleIdentifier, "app1")
+        XCTAssertEqual(snapshot.resolve(items: items, excluding: [], pinnedKeys: []).first?.bundleIdentifier, "app40")
+        XCTAssertEqual(snapshot.resolve(items: items, excluding: ["app40"]).count, 23)
+        XCTAssertEqual(snapshot.resolve(items: items, excluding: []).count, 23)
+    }
+
+    @MainActor func testPinPreferencesSurviveSmallerLayoutAndRoundTrip() throws {
+        let name = "KidoXTests.pins.\(UUID())"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let prefs = RecommendationPreferences(defaults: defaults)
+        prefs.layout = .sevenByFive
+        for i in 0..<35 { XCTAssertTrue(prefs.pin(app("pin\(i)", count: 0))) }
+        XCTAssertFalse(prefs.pin(app("overflow")))
+        prefs.layout = .sixByFour
+        XCTAssertEqual(prefs.pins.count, 35)
+        XCTAssertFalse(prefs.canPinMore)
+        let encoded = try JSONEncoder().encode(prefs.backup)
+        let backup = try JSONDecoder().decode(RecommendationBackupPreferences.self, from: encoded)
+        prefs.apply(backup)
+        XCTAssertEqual(prefs.pins.map(\.applicationKey), (0..<35).map { "pin\($0)" })
+        prefs.layout = .sevenByFive
+        XCTAssertEqual(prefs.pins.count, 35)
+    }
+
+    @MainActor func testPinClearsExclusionAndMoveDoesNotChangeApplications() {
+        let name = "KidoXTests.pins.\(UUID())"
+        let defaults = UserDefaults(suiteName: name)!
+        defer { defaults.removePersistentDomain(forName: name) }
+        let prefs = RecommendationPreferences(defaults: defaults)
+        let a = app("a", count: 0), b = app("b")
+        prefs.exclude(a)
+        XCTAssertTrue(prefs.pin(a))
+        XCTAssertFalse(prefs.excludedKeys.contains("a"))
+        XCTAssertTrue(prefs.pin(b))
+        prefs.movePin("b", before: "a")
+        XCTAssertEqual(prefs.pins.map(\.id), ["b", "a"])
+        prefs.exclude(a)
+        XCTAssertTrue(prefs.exclusions.isEmpty)
+        XCTAssertEqual(a.openCount, 0)
+    }
+
+    func testOldBackupHasNoPins() throws {
+        let prefs = try JSONDecoder().decode(RecommendationBackupPreferences.self, from: Data("{}".utf8))
+        XCTAssertTrue(prefs.pinnedApplications.isEmpty)
+    }
+
+    @MainActor func testCompactNavigationHasIndependentAnchorsAndFallsBack() {
+        let navigation = CompactLauncherNavigation()
+        let all = UUID(), frequent = UUID()
+        navigation.anchors["all"] = all
+        navigation.anchors["frequent"] = frequent
+        navigation.select(.frequent)
+        navigation.reconcile(hasFrequent: false)
+        XCTAssertEqual(navigation.section, .all)
+        XCTAssertEqual(navigation.anchors["all"], all)
+        XCTAssertEqual(navigation.anchors["frequent"], frequent)
+        XCTAssertNil(LauncherPresentationMode(rawValue: "unknown"))
+    }
+
+    func testCompactSwipeCommitsOnReleaseAndFollowsPageOrder() {
+        var gesture = CompactLauncherSwipe()
+        XCTAssertNil(gesture.consume(x: 12, y: 1, phase: .began, timestamp: 0).pageDelta)
+        XCTAssertNil(gesture.consume(x: 55, y: 2, phase: .changed, timestamp: 0.1).pageDelta)
+        let result = gesture.consume(x: 0, y: 0, phase: .ended, timestamp: 0.2)
+        XCTAssertEqual(result.pageDelta, -1)
+        XCTAssertTrue(result.consumesEvent)
+        XCTAssertEqual(CompactLauncherSection.all.moving(by: -1), .frequent)
+        XCTAssertEqual(CompactLauncherSection.frequent.moving(by: 1), .all)
+        XCTAssertEqual(CompactLauncherSection.all.moving(by: 1), .all)
+        XCTAssertEqual(CompactLauncherSection.frequent.moving(by: -1), .frequent)
+    }
+
+    func testCompactVerticalScrollNeverTurnsIntoPaging() {
+        var gesture = CompactLauncherSwipe()
+        XCTAssertFalse(gesture.consume(x: 2, y: 20, phase: .began, timestamp: 0).consumesEvent)
+        XCTAssertFalse(gesture.consume(x: 100, y: 3, phase: .changed, timestamp: 0.1).consumesEvent)
+        XCTAssertNil(gesture.consume(x: 0, y: 0, phase: .ended, timestamp: 0.2).pageDelta)
+    }
+
+    func testCompactSmallAndCancelledSwipesDoNotSwitch() {
+        var gesture = CompactLauncherSwipe()
+        _ = gesture.consume(x: 20, y: 0, phase: .began, timestamp: 0)
+        XCTAssertNil(gesture.consume(x: 0, y: 0, phase: .ended, timestamp: 0.1).pageDelta)
+        _ = gesture.consume(x: 80, y: 0, phase: .began, timestamp: 1)
+        XCTAssertNil(gesture.consume(x: 0, y: 0, phase: .cancelled, timestamp: 1.1).pageDelta)
+        XCTAssertNil(gesture.consume(x: 0, y: 0, phase: .ended, timestamp: 1.2).pageDelta)
+    }
+
+    func testCompactMomentumAndDuplicateEndCannotSwitchTwice() {
+        var gesture = CompactLauncherSwipe()
+        _ = gesture.consume(x: -60, y: 0, phase: .began, timestamp: 0)
+        XCTAssertEqual(gesture.consume(x: 0, y: 0, phase: .ended, timestamp: 0.1).pageDelta, 1)
+        XCTAssertNil(gesture.consume(x: 150, y: 0, phase: .changed, momentum: true, timestamp: 0.2).pageDelta)
+        XCTAssertNil(gesture.consume(x: 0, y: 0, phase: .ended, timestamp: 0.3).pageDelta)
+        _ = gesture.consume(x: 60, y: 0, phase: .began, timestamp: 1)
+        XCTAssertEqual(gesture.consume(x: 0, y: 0, phase: .ended, timestamp: 1.1).pageDelta, -1)
+    }
+
+    func testCompactUnphasedScrollSwitchesOncePerBurst() {
+        var gesture = CompactLauncherSwipe()
+        XCTAssertEqual(gesture.consume(x: -60, y: 0, phase: .unphased, timestamp: 0).pageDelta, 1)
+        XCTAssertNil(gesture.consume(x: 160, y: 0, phase: .unphased, timestamp: 0.1).pageDelta)
+        XCTAssertEqual(gesture.consume(x: 60, y: 0, phase: .unphased, timestamp: 0.5).pageDelta, -1)
+    }
+
+    func testCompactDiagonalScrollWithoutClearHorizontalIntentDoesNotSwitch() {
+        var gesture = CompactLauncherSwipe()
+        _ = gesture.consume(x: 60, y: 58, phase: .began, timestamp: 0)
+        XCTAssertNil(gesture.consume(x: 0, y: 0, phase: .ended, timestamp: 0.1).pageDelta)
+    }
+
 }

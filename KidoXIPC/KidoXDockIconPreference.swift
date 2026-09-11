@@ -23,7 +23,7 @@ public enum KidoXDockIcon: String, CaseIterable, Identifiable, Sendable {
 }
 
 public enum KidoXDockIconPreference {
-    public static let defaultsSuiteName = "com.clyapps.KidoX"
+    public static let defaultsSuiteName = "cc.xjpz.KidoX"
     public static let key = "KidoX.dockIcon"
 
     public static var current: KidoXDockIcon {

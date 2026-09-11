@@ -11,7 +11,8 @@ enum ApplicationRecommendationEngine {
     static func eligibleItems(
         in items: [LaunchItem],
         excluding excludedKeys: Set<String> = [],
-        unavailableKeys: Set<String> = []
+        unavailableKeys: Set<String> = [],
+        requiresUsage: Bool = true
     ) -> [String: LaunchItem] {
         var hiddenFolders = Set<UUID>()
         for item in items where item.kind == .folder && item.isHidden { hiddenFolders.insert(item.id) }
@@ -20,7 +21,7 @@ enum ApplicationRecommendationEngine {
             if item.isHidden || item.parentID.map(hiddenFolders.contains) == true { blocked.insert(key(for: item)) }
         }
         var candidates: [String: LaunchItem] = [:]
-        for item in items where item.kind == .application && item.openCount > 0 {
+        for item in items where item.kind == .application && (!requiresUsage || item.openCount > 0) {
             let key = key(for: item)
             guard !blocked.contains(key) else { continue }
             if let existing = candidates[key], !precedes(item, existing) { continue }
@@ -65,17 +66,36 @@ enum ApplicationRecommendationEngine {
 struct ApplicationRecommendationSnapshot {
     private(set) var keys: [String] = []
     private(set) var isReady = false
+    private var capacity = ApplicationRecommendationEngine.limit
+    private var candidatesAtOpen: [String] = []
+    private var previousPins: [String] = []
 
     mutating func begin(items: [LaunchItem], excluding: Set<String>, dataIsReady: Bool, limit: Int = ApplicationRecommendationEngine.limit) {
+        capacity = limit
         isReady = dataIsReady
-        keys = dataIsReady ? ApplicationRecommendationEngine.rankedKeys(in: items, excluding: excluding, limit: limit) : []
+        candidatesAtOpen = dataIsReady ? ApplicationRecommendationEngine.rankedKeys(in: items, excluding: excluding, limit: 35) : []
+        keys = Array(candidatesAtOpen.prefix(max(0, limit)))
+        previousPins = []
     }
 
-    mutating func resolve(items: [LaunchItem], excluding: Set<String>, unavailable: Set<String> = []) -> [LaunchItem] {
+    mutating func resolve(items: [LaunchItem], excluding: Set<String>, unavailable: Set<String> = [], pinnedKeys: [String] = []) -> [LaunchItem] {
+        guard isReady else { return [] }
         let candidates = ApplicationRecommendationEngine.eligibleItems(
             in: items, excluding: excluding, unavailableKeys: unavailable
         )
+        candidatesAtOpen.removeAll { candidates[$0] == nil }
+        if previousPins != pinnedKeys {
+            keys = candidatesAtOpen
+            previousPins = pinnedKeys
+        }
         keys.removeAll { candidates[$0] == nil }
-        return keys.compactMap { candidates[$0] }
+        let pinnable = ApplicationRecommendationEngine.eligibleItems(
+            in: items, excluding: excluding, unavailableKeys: unavailable, requiresUsage: false
+        )
+        var seen = Set<String>()
+        let pinned = pinnedKeys.filter { pinnable[$0] != nil && seen.insert($0).inserted }
+        keys = Array(keys.filter { !seen.contains($0) }.prefix(max(0, capacity - pinned.count)))
+        let combined = pinned.compactMap { pinnable[$0] } + keys.filter { !seen.contains($0) }.compactMap { candidates[$0] }
+        return Array(combined.prefix(max(0, capacity)))
     }
 }

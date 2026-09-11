@@ -1,8 +1,8 @@
 #import "KidoXDockTilePlugin.h"
 
-static NSString * const KidoXDockIconDefaultsSuiteName = @"com.clyapps.KidoX";
+static NSString * const KidoXDockIconDefaultsSuiteName = @"cc.xjpz.KidoX";
 static NSString * const KidoXDockIconDefaultsKey = @"KidoX.dockIcon";
-static NSString * const KidoXDockIconChangedNotificationName = @"com.clyapps.KidoX.dockIconChanged";
+static NSString * const KidoXDockIconChangedNotificationName = @"cc.xjpz.KidoX.dockIconChanged";
 
 static void KidoXDockTileLog(NSString *format, ...) {
     va_list arguments;

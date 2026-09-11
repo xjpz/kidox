@@ -339,7 +339,7 @@ struct UninstallPoofAnimation: View {
 
 private struct NativePoofEffectView: NSViewRepresentable {
     private static let logger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.clyapps.KidoX",
+        subsystem: Bundle.main.bundleIdentifier ?? "cc.xjpz.KidoX",
         category: "Uninstaller"
     )
 

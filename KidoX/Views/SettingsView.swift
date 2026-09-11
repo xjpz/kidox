@@ -238,6 +238,7 @@ struct DetailView: View {
 // MARK: - Panes
 
 private struct GeneralPane: View {
+    @AppStorage(LauncherPresentationMode.storageKey) private var presentationMode = LauncherPresentationMode.fullscreen.rawValue
     @AppStorage(KidoXLanguage.storageKey)
     private var appLanguageRaw = KidoXLanguage.system.rawValue
     @AppStorage(StatusItemController.showMenuBarIconStorageKey)
@@ -255,6 +256,14 @@ private struct GeneralPane: View {
 
     var body: some View {
         Form {
+            Section {
+                Picker(KidoXL10n.ui("Launch mode"), selection: $presentationMode) {
+                    Text(KidoXL10n.ui("Full screen")).tag(LauncherPresentationMode.fullscreen.rawValue)
+                    Text(KidoXL10n.ui("Compact launcher")).tag(LauncherPresentationMode.compact.rawValue)
+                }
+                .pickerStyle(.segmented)
+                Text(KidoXL10n.ui("Applies the next time you open KidoX.")).font(.caption).foregroundStyle(.secondary)
+            }
             RecommendationSettingsSection()
 
             Section {
@@ -1780,7 +1789,7 @@ private enum KidoXLogExporter {
             "--last",
             "15m",
             "--predicate",
-            #"subsystem == "com.clyapps.KidoX""#
+            #"subsystem == "cc.xjpz.KidoX""#
         ]
         process.standardOutput = pipe
         process.standardError = pipe
@@ -2325,9 +2334,11 @@ private struct KidoXBackupPreferences: Codable {
     var glassStrength: Double
     var solidPreset: String
     var solidCustomColor: String
+    var presentationMode: String
     var recommendations: RecommendationBackupPreferences
 
     private enum CodingKeys: String, CodingKey {
+        case presentationMode
         case showMenuBarIcon
         case f4HotKeyEnabled
         case legacyHotKeyEnabled = "hotKeyEnabled"
@@ -2364,6 +2375,7 @@ private struct KidoXBackupPreferences: Codable {
         glassStrength: Double,
         solidPreset: String,
         solidCustomColor: String,
+        presentationMode: String = LauncherPresentationMode.fullscreen.rawValue,
         recommendations: RecommendationBackupPreferences = RecommendationBackupPreferences()
     ) {
         self.showMenuBarIcon = showMenuBarIcon
@@ -2382,12 +2394,14 @@ private struct KidoXBackupPreferences: Codable {
         self.glassStrength = glassStrength
         self.solidPreset = solidPreset
         self.solidCustomColor = solidCustomColor
+        self.presentationMode = presentationMode
         self.recommendations = recommendations
     }
 
     init(from decoder: Decoder) throws {
         recommendations = try RecommendationBackupPreferences(from: decoder)
         let container = try decoder.container(keyedBy: CodingKeys.self)
+        presentationMode = try container.decodeIfPresent(String.self, forKey: .presentationMode) ?? LauncherPresentationMode.fullscreen.rawValue
         showMenuBarIcon = try container.decode(Bool.self, forKey: .showMenuBarIcon)
         f4HotKeyEnabled = try container.decodeIfPresent(Bool.self, forKey: .f4HotKeyEnabled)
             ?? container.decodeIfPresent(Bool.self, forKey: .legacyHotKeyEnabled)
@@ -2411,6 +2425,7 @@ private struct KidoXBackupPreferences: Codable {
     func encode(to encoder: Encoder) throws {
         try recommendations.encode(to: encoder)
         var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(presentationMode, forKey: .presentationMode)
         try container.encode(showMenuBarIcon, forKey: .showMenuBarIcon)
         try container.encode(f4HotKeyEnabled, forKey: .f4HotKeyEnabled)
         try container.encode(debugLoggingEnabled, forKey: .debugLoggingEnabled)
@@ -2510,6 +2525,7 @@ private enum KidoXBackupManager {
             glassStrength: doubleValue(forKey: KidoXBackgroundStyle.glassStrengthStorageKey, defaultValue: 0.5, defaults: defaults),
             solidPreset: stringValue(forKey: KidoXBackgroundStyle.solidPresetStorageKey, defaultValue: KidoXSolidBackgroundPreset.graphite.rawValue, defaults: defaults),
             solidCustomColor: stringValue(forKey: KidoXBackgroundStyle.solidCustomColorStorageKey, defaultValue: KidoXSolidBackgroundPreset.defaultCustomColorHex, defaults: defaults),
+            presentationMode: LauncherPresentationMode.current.rawValue,
             recommendations: RecommendationPreferences.shared.backup
         )
     }
@@ -2532,6 +2548,7 @@ private enum KidoXBackupManager {
     private static func apply(_ preferences: KidoXBackupPreferences, customImagePath: String) {
         RecommendationPreferences.shared.apply(preferences.recommendations)
         let defaults = UserDefaults.standard
+        defaults.set((LauncherPresentationMode(rawValue: preferences.presentationMode) ?? .fullscreen).rawValue, forKey: LauncherPresentationMode.storageKey)
         defaults.set(preferences.showMenuBarIcon, forKey: StatusItemController.showMenuBarIconStorageKey)
         defaults.set(preferences.f4HotKeyEnabled, forKey: KidoXActivationPreferenceKeys.f4HotKeyEnabled)
         defaults.set(preferences.debugLoggingEnabled, forKey: KidoXActivationPreferenceKeys.debugLoggingEnabled)

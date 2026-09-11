@@ -324,6 +324,7 @@ private struct SettingsMenuClickTarget: NSViewRepresentable {
             menu.autoenablesItems = false
 
             addItem(to: menu, title: KidoXL10n.ui("Open Settings"), action: #selector(openSettings(_:)))
+            addItem(to: menu, title: KidoXL10n.ui("Compact launcher"), action: #selector(openCompactLauncher(_:)))
             menu.addItem(.separator())
 
             let sectionItem = NSMenuItem(title: KidoXL10n.ui("Sort By"), action: nil, keyEquivalent: "")
@@ -376,6 +377,10 @@ private struct SettingsMenuClickTarget: NSViewRepresentable {
             parent.onOpenSettings()
         }
 
+        @objc private func openCompactLauncher(_ sender: NSMenuItem) {
+            NotificationCenter.default.post(name: .kidoXCompactLauncherRequested, object: nil)
+        }
+
         @objc private func purchasePro(_ sender: NSMenuItem) {
             parent.onPurchasePro()
         }
@@ -401,7 +406,7 @@ private struct SettingsMenuClickTarget: NSViewRepresentable {
 
 struct KidoXForegroundLayer: View {
     private static let uninstallerLogger = Logger(
-        subsystem: Bundle.main.bundleIdentifier ?? "com.clyapps.KidoX",
+        subsystem: Bundle.main.bundleIdentifier ?? "cc.xjpz.KidoX",
         category: "Uninstaller"
     )
 
@@ -659,6 +664,11 @@ struct KidoXForegroundLayer: View {
             }
             .onAppear {
                 currentSize = proxy.size
+                if isSearching, let selected = store.selectedItemID,
+                   let page = keyboardSelectionPages().firstIndex(where: { $0.contains(where: { $0.id == selected }) }) {
+                    currentPage = page
+                    keyboardSelectionID = selected
+                }
                 ensureKeyboardSelectionIsValid()
             }
             .onChange(of: proxy.size) { _, newSize in
@@ -668,14 +678,32 @@ struct KidoXForegroundLayer: View {
             }
         }
         .ignoresSafeArea()
+        .overlay(alignment: .bottom) {
+            if let feedback = store.recommendationPreferences.feedback {
+                Text(KidoXL10n.ui(feedback))
+                    .font(.callout).foregroundStyle(.white)
+                    .padding(.horizontal, 16).padding(.vertical, 10)
+                    .background(.black.opacity(0.65), in: Capsule())
+                    .padding(.bottom, 48)
+                    .allowsHitTesting(false)
+                    .task(id: feedback) {
+                        try? await Task.sleep(for: .seconds(3))
+                        if !Task.isCancelled { store.recommendationPreferences.feedback = nil }
+                    }
+            }
+        }
         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in
             hasFullDiskAccess = Self.detectFullDiskAccess()
         }
-        .onReceive(NotificationCenter.default.publisher(for: .kidoXPanelEscapeRequested)) { _ in
+        .onReceive(NotificationCenter.default.publisher(for: .kidoXPanelEscapeRequested)) { event in
+            guard (event.object as? NSWindow)?.identifier?.rawValue != "KidoX.compact" else { return }
             handleEscape()
         }
         .onChange(of: store.searchFocusRequestID) { _, _ in
             focusSearchField()
+        }
+        .onChange(of: keyboardSelectionID) { _, id in
+            store.selectedItemID = id
         }
         .onDisappear {
             onModalInteractionChanged(false)
@@ -3362,7 +3390,7 @@ struct KidoXForegroundLayer: View {
     }
 }
 
-private struct SearchTextField: NSViewRepresentable {
+struct SearchTextField: NSViewRepresentable {
     @Binding var text: String
     @Binding var isFocused: Bool
     @Binding var isComposing: Bool
@@ -3370,6 +3398,7 @@ private struct SearchTextField: NSViewRepresentable {
     let onMoveSelection: (SearchSelectionMove) -> Bool
     let onMovePage: (Int) -> Bool
     let onCommit: () -> Bool
+    var textColor: NSColor = .white
 
     func makeCoordinator() -> Coordinator {
         Coordinator(
@@ -3395,7 +3424,7 @@ private struct SearchTextField: NSViewRepresentable {
         textField.drawsBackground = false
         textField.focusRingType = .none
         textField.font = .systemFont(ofSize: 18)
-        textField.textColor = .white
+        textField.textColor = textColor
         textField.placeholderString = nil
         textField.backgroundColor = .clear
         textField.stringValue = text
@@ -3409,6 +3438,7 @@ private struct SearchTextField: NSViewRepresentable {
     }
 
     func updateNSView(_ textField: NSTextField, context: Context) {
+        textField.textColor = textColor
         context.coordinator.text = $text
         context.coordinator.isFocused = $isFocused
         context.coordinator.isComposing = $isComposing
@@ -3571,6 +3601,8 @@ private struct SearchTextField: NSViewRepresentable {
         func configureTextEditor(for textField: NSTextField) {
             guard let textView = textField.currentEditor() as? NSTextView else { return }
             SearchFieldNSTextFieldCell.configureFieldEditor(textView)
+            textView.textColor = textField.textColor
+            textView.insertionPointColor = textField.textColor ?? .labelColor
         }
 
         func restartInsertionPoint(for textField: NSTextField) {
@@ -3984,6 +4016,9 @@ private struct AppTile: View, Equatable {
         .animation(.snappy(duration: 0.10), value: pressVisual)
         .animation(.snappy(duration: 0.18), value: isDropTarget)
         .contentShape(hitShape)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(item.effectiveDisplayName)
+        .accessibilityValue(RecommendationPreferences.shared.isPinned(item) ? KidoXL10n.ui("Pinned") : "")
         .contextMenu {
             contextMenuContent
         }
@@ -4137,6 +4172,7 @@ private struct AppTile: View, Equatable {
             Button(KidoXL10n.string(.showInFinder)) {
                 revealAction()
             }
+            PinApplicationMenu(item: item)
             if renameAction != nil {
                 Button(canRename ? KidoXL10n.string(.rename) : "\(KidoXL10n.string(.rename))  Pro") {
                     beginRename()
@@ -5440,6 +5476,8 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
     }
 
     private func tearDownForWindowRemoval() {
+        pinDragPreview?.removeFromSuperview()
+        pinDragPreview = nil
         finishInlineRename()
         removeRenameWindowObservers()
         removeRenameMouseDownMonitor()
@@ -6115,7 +6153,16 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
             revealItem.representedObject = item
             menu.addItem(revealItem)
 
+            if item.kind == .application {
+                let prefs = RecommendationPreferences.shared
+                let pin = NSMenuItem(title: KidoXL10n.ui(prefs.isPinned(item) ? "Unpin app" : "Pin to Frequent Apps"), action: #selector(handleContextPin(_:)), keyEquivalent: "")
+                pin.target = self
+                pin.representedObject = item
+                pin.isEnabled = prefs.isPinned(item) || prefs.canPinMore
+                menu.addItem(pin)
+            }
             if isRecommendationPage(currentPage) {
+                if RecommendationPreferences.shared.isPinned(item) { return menu }
                 menu.addItem(.separator())
                 let exclude = NSMenuItem(title: KidoXL10n.ui("Do not recommend this app"), action: #selector(handleContextExcludeRecommendation(_:)), keyEquivalent: "")
                 exclude.target = self
@@ -6148,6 +6195,13 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         }
 
         return menu
+    }
+
+    @objc private func handleContextPin(_ sender: NSMenuItem) {
+        guard let item = sender.representedObject as? LaunchItem else { return }
+        let prefs = RecommendationPreferences.shared
+        if prefs.isPinned(item) { prefs.unpin(ApplicationRecommendationEngine.key(for: item)) }
+        else { pinApplication(item) }
     }
 
     @objc private func handleContextExcludeRecommendation(_ sender: NSMenuItem) {
@@ -6256,6 +6310,8 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         inlineRenameView.commitRename()
     }
 
+    private var pinDragPreview: NSImageView?
+
     override func mouseDragged(with event: NSEvent) {
         guard !isFinishingTileDrag else { return }
 
@@ -6313,6 +6369,18 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
                 return
             }
 
+            if let source = mouseDownItem, isRecommendationPage(currentPage), RecommendationPreferences.shared.isPinned(source) {
+                setPressedVisual(itemID: nil)
+                if pinDragPreview == nil {
+                    let preview = NSImageView(frame: NSRect(x: 0, y: 0, width: 72, height: 72))
+                    preview.image = IconCache.icon(for: source.sourcePath)
+                    preview.alphaValue = 0.8
+                    addSubview(preview)
+                    pinDragPreview = preview
+                }
+                pinDragPreview?.setFrameOrigin(NSPoint(x: point.x - 36, y: point.y - 36))
+                return
+            }
             if mouseDownItem != nil && isRecommendationPage(currentPage) {
                 setPressedVisual(itemID: nil)
                 self.mouseDownPoint = nil
@@ -6342,6 +6410,16 @@ private final class AppKitPagedGridNSView: NSView, NSDraggingSource {
         }
 
         let point = convert(event.locationInWindow, from: nil)
+        if let preview = pinDragPreview {
+            preview.removeFromSuperview()
+            pinDragPreview = nil
+            if let source = mouseDownItem, bounds.contains(point) {
+                let prefs = RecommendationPreferences.shared
+                let target = item(at: point).flatMap { prefs.isPinned($0) ? ApplicationRecommendationEngine.key(for: $0) : nil }
+                prefs.movePin(ApplicationRecommendationEngine.key(for: source), before: target)
+            }
+            return
+        }
         if isTileDragging {
             if tileDragUsesSystemDrag {
                 appSystemDragSession = nil

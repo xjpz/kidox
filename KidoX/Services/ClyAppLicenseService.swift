@@ -226,7 +226,7 @@ struct ClyAppLicenseService {
     }
 
     var licensedBundleIdentifier: String {
-        let bundleID = Bundle.main.bundleIdentifier ?? "com.clyapps.KidoX"
+        let bundleID = Bundle.main.bundleIdentifier ?? "cc.xjpz.KidoX"
         if bundleID.hasSuffix(".Agent") {
             return String(bundleID.dropLast(".Agent".count))
         }

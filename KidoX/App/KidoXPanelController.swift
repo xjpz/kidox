@@ -13,6 +13,11 @@ final class KidoXPanelController {
     static let hideLaunchPanelForModalPresentationNotification = Notification.Name("KidoXHideLaunchPanelForModalPresentation")
 
     private let store = KidoXStore()
+    private lazy var compactController = CompactLauncherPanelController(store: store,
+        onExpand: { [weak self] in self?.expandCompactLauncher() },
+        onSettings: { [weak self] pane in self?.onOpenSettings(pane) })
+    nonisolated(unsafe) private var compactObserver: NSObjectProtocol?
+    private var compactGestureDirection: KidoXGlobalTrackpadGestureDirection?
     private let onOpenSettings: (SettingsPane?) -> Void
     private var panel: KidoXPanel?
     private weak var foregroundHostingView: NSView?
@@ -41,6 +46,9 @@ final class KidoXPanelController {
     init(onOpenSettings: @escaping (SettingsPane?) -> Void = { _ in }) {
         self.onOpenSettings = onOpenSettings
         self.observedAppLanguageRaw = UserDefaults.standard.string(forKey: KidoXLanguage.storageKey) ?? KidoXLanguage.system.rawValue
+        compactObserver = NotificationCenter.default.addObserver(forName: .kidoXCompactLauncherRequested, object: nil, queue: .main) { [weak self] _ in
+            Task { @MainActor [weak self] in self?.showCompactTemporarily() }
+        }
         defaultsObserver = NotificationCenter.default.addObserver(
             forName: UserDefaults.didChangeNotification,
             object: UserDefaults.standard,
@@ -73,6 +81,7 @@ final class KidoXPanelController {
     }
 
     deinit {
+        if let compactObserver { NotificationCenter.default.removeObserver(compactObserver) }
         if let defaultsObserver {
             NotificationCenter.default.removeObserver(defaultsObserver)
         }
@@ -96,6 +105,14 @@ final class KidoXPanelController {
     }
 
     func show() {
+        if compactController.isVisible { compactController.hide(); return }
+        if panel?.isVisible != true && LauncherPresentationMode.current == .compact {
+            store.prepareCachedApplicationsForPresentation()
+            store.markPreparingForInitialPresentation()
+            compactController.show()
+            Task { await store.prepareForPresentation() }
+            return
+        }
         interactiveGestureTransition = nil
         if let panel, panel.isVisible {
             hide()
@@ -112,6 +129,20 @@ final class KidoXPanelController {
         }
     }
 
+    private func showCompactTemporarily() {
+        let query = store.searchQuery
+        let selection = store.selectedItemID
+        hideImmediately(shouldHideAppIfNoOtherWindowIsVisible: false)
+        store.searchQuery = query
+        store.selectedItemID = selection
+        compactController.show(newSession: false)
+    }
+
+    private func expandCompactLauncher() {
+        compactController.hide()
+        present(newSession: false)
+    }
+
     func prepareForBackgroundLaunch() {
         prewarmForGestureActivation()
         Task { @MainActor [weak self] in
@@ -120,7 +151,7 @@ final class KidoXPanelController {
     }
 
     func prewarmForGestureActivation() {
-        guard panel == nil else { return }
+        guard panel == nil, LauncherPresentationMode.current == .fullscreen else { return }
 
         store.prepareCachedApplicationsForPresentation()
 
@@ -134,8 +165,8 @@ final class KidoXPanelController {
         prewarmSearchFieldEditor(panel)
     }
 
-    private func present() {
-        store.beginPresentationSession()
+    private func present(newSession: Bool = true) {
+        if newSession { store.beginPresentationSession() }
         let targetScreen = screenForPresentation()
         let panel = panel ?? makePanel(for: targetScreen)
         self.panel = panel
@@ -173,6 +204,7 @@ final class KidoXPanelController {
     }
 
     func hide() {
+        if compactController.isVisible { compactController.hide(); return }
         interactiveGestureTransition = nil
         guard let panel, panel.isVisible else { return }
         keepsPanelOpenForModalInteraction = false
@@ -325,6 +357,10 @@ final class KidoXPanelController {
     }
 
     func beginInteractiveTrackpadGesture(direction: KidoXGlobalTrackpadGestureDirection) {
+        if compactController.isVisible || (panel?.isVisible != true && LauncherPresentationMode.current == .compact) {
+            compactGestureDirection = direction
+            return
+        }
         guard interactiveGestureStartOpenness == nil else { return }
 
         let isVisible = panel?.isVisible ?? false
@@ -349,6 +385,12 @@ final class KidoXPanelController {
     }
 
     func finishInteractiveTrackpadGesture(direction: KidoXGlobalTrackpadGestureDirection) {
+        if compactGestureDirection != nil {
+            compactGestureDirection = nil
+            if direction == .pinchIn && !compactController.isVisible { show() }
+            if direction == .spreadOut && compactController.isVisible { compactController.hide() }
+            return
+        }
         guard interactiveGestureStartOpenness != nil else { return }
         let currentOpenness = currentPanelOpennessEstimate()
         let targetOpenness = targetOpennessAfterTrackpadRelease(
@@ -361,6 +403,7 @@ final class KidoXPanelController {
     }
 
     func cancelInteractiveTrackpadGesture() {
+        if compactGestureDirection != nil { compactGestureDirection = nil; return }
         guard let startOpenness = interactiveGestureStartOpenness else { return }
         animateInteractiveGestureOpenness(to: startOpenness) { [weak self] in
             self?.completeInteractiveTrackpadGesture(at: startOpenness)
@@ -378,6 +421,7 @@ final class KidoXPanelController {
     }
 
     private func hideImmediately(shouldHideAppIfNoOtherWindowIsVisible: Bool) {
+        compactController.hide()
         keepsPanelOpenForModalInteraction = false
         resetTransientPresentationState()
         focusWorkItem?.cancel()

@@ -62,7 +62,7 @@ final class HelperService: NSObject, KidoXPrivilegedHelperProtocol {
 }
 
 enum ClientCodeRequirementValidator {
-    private static let requirementString = "identifier \"com.clyapps.KidoX\" and anchor apple generic and certificate leaf[subject.OU] = \"LCR49HJMTK\""
+    private static let requirementString = "identifier \"cc.xjpz.KidoX\" and anchor apple generic and certificate leaf[subject.OU] = \"LCR49HJMTK\""
 
     static func isValidClient(pid: pid_t) -> Bool {
         var requirement: SecRequirement?

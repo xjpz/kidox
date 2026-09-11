@@ -17,6 +17,7 @@ struct RecommendationSettingsSection: View {
             Text(KidoXL10n.ui("Available with Default sorting. Only launches from KidoX are counted."))
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            PinnedApplicationsSettings()
             DisclosureGroup(isExpanded: $preferences.showsExclusions) {
                 if preferences.exclusions.isEmpty {
                     Text(KidoXL10n.ui("No excluded apps"))

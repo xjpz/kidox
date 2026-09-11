@@ -1,7 +1,7 @@
 import Foundation
 
 public enum KidoXIPC {
-    public static let agentBundleIdentifier = "com.clyapps.KidoX.Agent"
-    public static let showNotificationName = Notification.Name("com.clyapps.KidoX.show")
-    public static let dockIconChangedNotificationName = Notification.Name("com.clyapps.KidoX.dockIconChanged")
+    public static let agentBundleIdentifier = "cc.xjpz.KidoX.Agent"
+    public static let showNotificationName = Notification.Name("cc.xjpz.KidoX.show")
+    public static let dockIconChangedNotificationName = Notification.Name("cc.xjpz.KidoX.dockIconChanged")
 }

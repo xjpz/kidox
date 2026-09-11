@@ -1,7 +1,7 @@
 import Foundation
 
 enum KidoXPrivilegedHelper {
-    static let label = "com.clyapps.KidoX.PrivilegedHelper"
+    static let label = "cc.xjpz.KidoX.PrivilegedHelper"
     static let version = "1.1"
 }
 

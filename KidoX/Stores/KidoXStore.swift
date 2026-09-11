@@ -345,6 +345,7 @@ final class KidoXStore {
         presentationNavigation.resumeBrowsing()
         presentationSessionID = UUID()
         searchQuery = ""
+        selectedItemID = nil
         openFolderID = nil
         renewRecommendationSnapshot()
     }
@@ -380,7 +381,8 @@ final class KidoXStore {
     private func refreshRecommendationItems() {
         recommendationItems = recommendationSnapshot.resolve(
             items: pages.flatMap(\.items), excluding: recommendationPreferences.excludedKeys,
-            unavailable: unavailableRecommendationKeys
+            unavailable: unavailableRecommendationKeys,
+            pinnedKeys: recommendationPreferences.pins.map(\.applicationKey)
         )
     }
 
@@ -459,7 +461,7 @@ final class KidoXStore {
         }
     }
 
-    private func cachedSortedVisibleItems(sort: KidoXLaunchSort, query: String) -> [LaunchItem] {
+    func cachedSortedVisibleItems(sort: KidoXLaunchSort, query: String) -> [LaunchItem] {
         let normalizedQuery = query.trimmingCharacters(in: .whitespacesAndNewlines)
         let key = VisibleItemsCacheKey(sort: sort, query: normalizedQuery, indexRevision: searchIndexRevision)
         if let cached = visibleItemsCache[key] {
@@ -609,19 +611,21 @@ final class KidoXStore {
     }
 
     @MainActor
-    func open(_ item: LaunchItem) {
+    func open(_ item: LaunchItem, completion: (@MainActor (Bool) -> Void)? = nil) {
         let configuration = NSWorkspace.OpenConfiguration()
         configuration.activates = true
 
         NSWorkspace.shared.openApplication(at: item.url, configuration: configuration) { [weak self] application, error in
             Task { @MainActor [weak self] in
                 if let error {
+                    completion?(false)
                     self?.errorMessage = error.localizedDescription
                     self?.refreshApplicationsInBackground()
                     self?.validateRecommendationPaths()
                     return
                 }
 
+                completion?(true)
                 application?.activate(options: [.activateAllWindows, .activateIgnoringOtherApps])
 
                 guard let self,
