@@ -8,6 +8,8 @@ struct CompactLauncherView: View {
     let onDismiss: () -> Void
     let onExpand: () -> Void
     let onSettings: (SettingsPane?) -> Void
+    let onModalInteractionChanged: (Bool) -> Void
+    let onRestoreFocusAfterModalInteraction: () -> Void
     @AppStorage(KidoXLaunchSort.storageKey) private var sortRaw = KidoXLaunchSort.default.rawValue
     @AppStorage(KidoXLanguage.storageKey) private var language = KidoXLanguage.system.rawValue
     @AppStorage("ClyAppLicense.status") private var licenseStatus = "Free"
@@ -19,6 +21,11 @@ struct CompactLauncherView: View {
     @State private var draggedPinID: UUID?
     @State private var pinDragOffset: CGSize = .zero
     @State private var tileFrames: [UUID: CGRect] = [:]
+    @State private var uninstallSession: UninstallPanelSession?
+    @State private var hasFullDiskAccess = false
+    @State private var uninstallAnchor = CGPoint.zero
+    @State private var uninstallTileFrames: [UUID: CGRect] = [:]
+    private let privilegedHelperClient = KidoXPrivilegedHelperClient()
 
     private var sort: KidoXLaunchSort {
         let value = KidoXLaunchSort(rawValue: sortRaw) ?? .default
@@ -116,8 +123,41 @@ struct CompactLauncherView: View {
                     }
             }
         }
+        .disabled(uninstallSession != nil)
+        .overlay {
+            GeometryReader { geometry in
+                if let uninstallSession {
+                    UninstallPanelRouteView(
+                        session: uninstallSession,
+                        isPro: licenseStatus == "active",
+                        hasFullDiskAccess: hasFullDiskAccess,
+                        anchor: uninstallAnchor,
+                        onCancel: { closeUninstaller() },
+                        onConfirm: { item, plan in await uninstall(item, plan: plan) },
+                        onRetryFailedItems: { result in
+                            let updated = await store.retryFailedUninstallDataRemovals(from: result)
+                            onRestoreFocusAfterModalInteraction()
+                            self.uninstallSession?.phase = .completed(updated)
+                            return true
+                        },
+                        onOpenPrivacySettings: {
+                            if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles") {
+                                NSWorkspace.shared.open(url)
+                            }
+                        },
+                        onOpenUninstallerSettings: { closeUninstaller(); onSettings(.uninstaller) },
+                        onRevealInFinder: { store.revealInFinder($0) },
+                        onUpgradeToPro: { closeUninstaller(); onSettings(.license) }
+                    )
+                    .frame(width: geometry.size.width, height: geometry.size.height)
+                }
+            }
+        }
+        .coordinateSpace(name: "compact.launcher")
+        .onPreferenceChange(CompactUninstallFramesKey.self) { uninstallTileFrames = $0 }
+        .onDisappear { onModalInteractionChanged(false) }
         .background(CompactSwipeMonitor(
-            isEnabled: hasFrequent && query.isEmpty && !composing && navigation.folderID == nil && draggedPinID == nil,
+            isEnabled: uninstallSession == nil && hasFrequent && query.isEmpty && !composing && navigation.folderID == nil && draggedPinID == nil,
             onSwipe: { delta in
                 let target = navigation.section.moving(by: delta)
                 guard target != navigation.section else { return }
@@ -300,6 +340,8 @@ struct CompactLauncherView: View {
         .background(GeometryReader { geometry in
             Color.clear.preference(key: CompactTileFramesKey.self,
                 value: [item.id: geometry.frame(in: .named("compact.appGrid"))])
+                .preference(key: CompactUninstallFramesKey.self,
+                    value: [item.id: geometry.frame(in: .named("compact.launcher"))])
         })
         .accessibilityLabel(item.effectiveDisplayName)
         .accessibilityValue(store.recommendationPreferences.isPinned(item) ? KidoXL10n.ui("Pinned") : "")
@@ -313,10 +355,86 @@ struct CompactLauncherView: View {
                 Button(KidoXL10n.string(.showInFinder)) { store.revealInFinder(item) }
                 Button(KidoXL10n.string(.hideApp)) { store.hideItem(item) }.disabled(licenseStatus != "active")
                 if ApplicationUninstaller.canUninstallApplication(at: item.url) {
-                    Button(KidoXL10n.string(.uninstallAppEllipsis)) { onSettings(.uninstaller) }
+                    Button(KidoXL10n.string(.uninstallAppEllipsis)) { confirmUninstall(item) }
                 }
             }
         }
+    }
+
+    private func closeUninstaller() {
+        uninstallSession = nil
+        onModalInteractionChanged(false)
+        focused = true
+    }
+
+    private func confirmUninstall(_ item: LaunchItem) {
+        guard item.kind == .application,
+              ApplicationUninstaller.canUninstallApplication(at: item.url) else { return }
+        guard licenseStatus == "active" else { onSettings(.license); return }
+        let frame = uninstallTileFrames[item.id] ?? .zero
+        uninstallAnchor = CGPoint(x: frame.midX, y: frame.midY)
+        let session = UninstallPanelSession(item: item, phase: .planning)
+        uninstallSession = session
+        focused = false
+        onModalInteractionChanged(true)
+
+        Task { @MainActor in
+            do {
+                let version = try? await privilegedHelperClient.installedHelperVersion()
+                let helperReady = version.map {
+                    $0.compare(KidoXPrivilegedHelper.version, options: .numeric) != .orderedAscending
+                } ?? false
+                guard uninstallSession?.id == session.id else { return }
+                hasFullDiskAccess = Self.detectFullDiskAccess()
+                guard hasFullDiskAccess && helperReady else {
+                    uninstallSession?.phase = .setupRequired(
+                        missingFullDiskAccess: !hasFullDiskAccess, missingHelper: !helperReady)
+                    return
+                }
+                let plan = try await store.makeUninstallPlan(for: item)
+                guard uninstallSession?.id == session.id else { return }
+                uninstallSession?.phase = .confirming(plan)
+            } catch {
+                guard uninstallSession?.id == session.id else { return }
+                uninstallSession?.phase = .failed(error.localizedDescription)
+            }
+        }
+    }
+
+    @MainActor
+    private func uninstall(_ item: LaunchItem, plan: ApplicationUninstallPlan) async -> Bool {
+        uninstallSession?.phase = .uninstalling(plan)
+        do {
+            let outcome = try await store.uninstallApplication(item, plan: plan)
+            onRestoreFocusAfterModalInteraction()
+            if let folder = navigation.folderID, !store.items.contains(where: { $0.id == folder }) {
+                navigation.folderID = nil
+            }
+            if outcome.uninstallResult.hasDataRemovalFailures {
+                uninstallSession?.phase = .completed(outcome.uninstallResult)
+            } else {
+                closeUninstaller()
+            }
+        } catch {
+            onRestoreFocusAfterModalInteraction()
+            uninstallSession?.phase = .failed(error.localizedDescription)
+        }
+        return true
+    }
+
+    // Match the full-screen launcher's permission probe before making a plan.
+    private static func detectFullDiskAccess() -> Bool {
+        let fileManager = FileManager.default
+        guard let library = fileManager.urls(for: .libraryDirectory, in: .userDomainMask).first else { return true }
+        let locations = ["Mail", "Messages", "Safari"].map { library.appendingPathComponent($0, isDirectory: true) }
+        var testedProtectedLocation = false
+        for url in locations where fileManager.fileExists(atPath: url.path) {
+            testedProtectedLocation = true
+            if (try? fileManager.contentsOfDirectory(at: url, includingPropertiesForKeys: [.isDirectoryKey], options: [.skipsHiddenFiles])) != nil {
+                return true
+            }
+        }
+        return !testedProtectedLocation
     }
 
     private func applyQuery(_ value: String) {
@@ -326,6 +444,12 @@ struct CompactLauncherView: View {
         navigation.selectedItemID = value.isEmpty ? nil : contents.first?.id
     }
     private func escape() {
+        if uninstallSession != nil {
+            // System authorization may still be running; keep its result visible.
+            if case .uninstalling = uninstallSession?.phase { return }
+            closeUninstaller()
+            return
+        }
         if !store.searchQuery.isEmpty { store.searchQuery = ""; applyQuery("") }
         else if navigation.folderID != nil { navigation.folderID = nil; navigation.selectedItemID = nil }
         else { onDismiss() }
@@ -351,6 +475,13 @@ struct CompactLauncherView: View {
             launching = false
             if success { onDismiss() }
         }
+    }
+}
+
+private struct CompactUninstallFramesKey: PreferenceKey {
+    static let defaultValue: [UUID: CGRect] = [:]
+    static func reduce(value: inout [UUID: CGRect], nextValue: () -> [UUID: CGRect]) {
+        value.merge(nextValue(), uniquingKeysWith: { _, new in new })
     }
 }
 

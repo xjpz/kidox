@@ -16,6 +16,7 @@ final class CompactLauncherPanelController {
     private var localClickMonitor: Any?
     private var origins: [String: NSPoint] = [:]
     private var screenKey = ""
+    private var keepsPanelOpenForModalInteraction = false
     var isVisible: Bool { panel?.isVisible == true }
 
     init(store: KidoXStore, onExpand: @escaping () -> Void, onSettings: @escaping (SettingsPane?) -> Void) {
@@ -53,6 +54,7 @@ final class CompactLauncherPanelController {
         // Release the view's search event monitor while preserving navigation in this owner.
         panel?.contentView = nil
         panel = nil
+        keepsPanelOpenForModalInteraction = false
         if let clickMonitor { NSEvent.removeMonitor(clickMonitor) }
         if let localClickMonitor { NSEvent.removeMonitor(localClickMonitor) }
         clickMonitor = nil
@@ -74,7 +76,13 @@ final class CompactLauncherPanelController {
             store: store, navigation: navigation,
             onDismiss: { [weak self] in self?.hide() },
             onExpand: { [weak self] in self?.onExpand() },
-            onSettings: { [weak self] pane in self?.hide(); self?.onSettings(pane) }
+            onSettings: { [weak self] pane in self?.hide(); self?.onSettings(pane) },
+            onModalInteractionChanged: { [weak self] active in self?.keepsPanelOpenForModalInteraction = active },
+            onRestoreFocusAfterModalInteraction: { [weak self] in
+                guard let panel = self?.panel, panel.isVisible else { return }
+                NSApp.activate(ignoringOtherApps: true)
+                panel.makeKeyAndOrderFront(nil)
+            }
         ))
         // Keep the material at the AppKit window boundary. A SwiftUI mask around
         // a behind-window blur can flatten it into a gray, opaque-looking layer.
@@ -103,7 +111,7 @@ final class CompactLauncherPanelController {
         guard clickMonitor == nil else { return }
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
             Task { @MainActor [weak self] in
-                guard let self, self.isVisible else { return }
+                guard let self, self.isVisible, !self.keepsPanelOpenForModalInteraction else { return }
                 // Input-method candidate windows can extend beyond the panel.
                 if let editor = self.panel?.firstResponder as? NSTextView, editor.hasMarkedText() { return }
                 guard self.panel?.frame.contains(NSEvent.mouseLocation) == false else { return }
@@ -111,7 +119,7 @@ final class CompactLauncherPanelController {
             }
         }
         localClickMonitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] event in
-            if let self, self.isVisible, let window = event.window, window !== self.panel,
+            if let self, self.isVisible, !self.keepsPanelOpenForModalInteraction, let window = event.window, window !== self.panel,
                window.level == .normal, window.sheetParent == nil {
                 self.hide()
             }
